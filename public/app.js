@@ -341,6 +341,7 @@ async function showNearbyRecommendations(loc) {
         const p = topN[Number(btn.dataset.idx)];
         fillStoreInfo(p.address, p.name, p.category);
         placeMarker(p.lat, p.lng);
+        userLocation = { lat: p.lat, lng: p.lng };
         fetchBlogSuggestions(p.name);
       });
     });
@@ -397,7 +398,14 @@ function renderResultList(candidates) {
       if (c.name) fetchBlogSuggestions(c.name);
 
       const point = c.lat != null ? c : await geocodeAddress(c.address);
-      if (point) placeMarker(point.lat, point.lng);
+      if (point) {
+        placeMarker(point.lat, point.lng);
+        // 실제 매장을 골랐으면 그 위치가 GPS/IP 추정보다 훨씬 정확함 — "내 위치"를 이걸로 덮어써서
+        // 이후 주변 추천 등이 엉뚱한 IP 기반 위치(예: 송파구)로 안 돌아가게 함
+        userLocation = { lat: point.lat, lng: point.lng };
+        fetchNearbyExamples(userLocation);
+        showNearbyRecommendations(userLocation);
+      }
     });
   });
 }

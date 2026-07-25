@@ -3,7 +3,7 @@ services:
     name: hanul-platform
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install && npx puppeteer browsers install chrome
     startCommand: node server.js
     envVars:
       - key: ANTHROPIC_API_KEY
@@ -22,3 +22,5 @@ services:
         sync: false
       - key: PUPPETEER_SKIP_DOWNLOAD
         value: "false"
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/project/.cache/puppeteer

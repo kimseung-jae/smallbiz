@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; background: #f4ede1; }
+  .page {
+    width: 1080px;
+    padding: 36px;
+    background: #f4ede1;
+    display: grid;
+    gap: 26px;
+    grid-template-columns: __GRID_COLS__;
+    grid-template-rows: __GRID_ROWS__;
+    grid-template-areas: __GRID_AREAS__;
+  }
+  .panel {
+    position: relative;
+    overflow: hidden;
+    border: 2px solid #2b2b2b;
+    border-radius: 4px;
+    background: #fff;
+  }
+  .panel img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .bubble {
+    position: absolute;
+    max-width: 74%;
+    background: #fffdf8;
+    border: 2px solid #2b2b2b;
+    border-radius: 999px / 60px;
+    padding: 12px 22px;
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #2b2b2b;
+    white-space: pre-wrap;
+    word-break: keep-all;
+  }
+  .bubble.top { top: 20px; left: 20px; }
+  .bubble.bottom { bottom: 20px; right: 20px; }
+
+  .title-bar {
+    grid-column: 1 / -1;
+    text-align: center;
+    font-size: 32px;
+    font-weight: 700;
+    color: #2b2b2b;
+    padding: 2px 0 4px;
+    letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    __TITLE_BAR__
+    __PANELS__
+  </div>
+</body>
+</html>

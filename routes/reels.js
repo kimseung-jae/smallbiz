@@ -10,7 +10,8 @@ const WIDTH = 1080;
 const HEIGHT = 1920;
 const FPS = 30;
 const CLIP_SECONDS = 3;
-const KOREAN_FONT = '/System/Library/Fonts/AppleSDGothicNeo.ttc';
+// macOS 시스템 폰트 대신 리포에 번들된 폰트를 써야 리눅스 서버(Render)에서도 자막이 그려짐
+const KOREAN_FONT = path.join(__dirname, '..', 'fonts', 'NotoSansKR-VF.ttf');
 const MUSIC_DIR = path.join(__dirname, '..', 'music');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 

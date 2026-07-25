@@ -185,6 +185,10 @@ window.navermap_authFailure = function () {
 
 let userLocation = null; // {lat, lng} — 한 번 받아오면 캐시해서 재사용
 
+// GPS/IP 위치를 끝내 못 잡으면 최종적으로 쓸 기본 위치 (강화군청 부근).
+// TODO: 여러 지역 사장님이 쓰게 되면 매장별로 설정 가능하게 바꿔야 함 — 지금은 단일 매장 테스트용 기본값.
+const FALLBACK_LOCATION = { lat: 37.7461, lng: 126.4868 };
+
 function initNaverMap() {
   if (typeof naver === 'undefined' || !naver.maps) {
     mapResultInfo.textContent = '지도를 불러오지 못했어요. 매장명/한 줄 소개는 아래에서 직접 입력해주세요.';
@@ -216,21 +220,13 @@ function placeUserLocationMarker(lat, lng) {
   });
 }
 
-// 브라우저 위치(GPS/와이파이 스캔)가 실패하거나 시간 초과되면, IP 기반 위치(빠르지만 동네 수준 정확도)로 대체
-async function getLocationByIP() {
-  try {
-    const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
-    const data = await res.json();
-    const lat = parseFloat(data.latitude);
-    const lng = parseFloat(data.longitude);
-    if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
-      mapResultInfo.textContent = `📍 IP 기반으로 대략적인 위치(${data.city || ''})를 사용할게요. 더 정확하게 하려면 위 버튼으로 다시 시도해보세요.`;
-      return { lat, lng };
-    }
-  } catch {
-    // IP 위치도 실패하면 그냥 null 반환 — 호출부에서 전국 기준으로 대체
-  }
-  return null;
+// GPS를 끝내 못 잡으면(권한 거부/시간초과/네트워크 문제 등) IP 기반 위치는 통신사 게이트웨이 위치로
+// 잘못 잡히는 경우가 많아(예: 강화도에 있어도 송파구로 나옴) 신뢰하지 않고, 바로 기본 위치로 대체한다.
+function useFallbackLocation(reasonText) {
+  userLocation = { ...FALLBACK_LOCATION };
+  placeUserLocationMarker(userLocation.lat, userLocation.lng);
+  mapResultInfo.textContent = `📍 ${reasonText} 기본 위치로 표시할게요. 정확한 매장 위치는 위 검색창에서 직접 찾아 선택해주세요.`;
+  return userLocation;
 }
 
 function getUserLocation() {
@@ -240,10 +236,11 @@ function getUserLocation() {
   // 브라우저가 권한 요청 자체를 차단하므로, 왜 안 되는지 화면에 바로 알려준다.
   const isSecureContext = window.isSecureContext;
   if (!isSecureContext) {
-    mapResultInfo.textContent = '⚠️ 이 주소(http)는 보안 연결이 아니라서 위치 정보를 쓸 수 없어요. localhost로 접속하거나 https 배포 후 다시 시도해주세요.';
-    return getLocationByIP();
+    return Promise.resolve(useFallbackLocation('이 주소(http)는 보안 연결이 아니라서 위치 정보를 쓸 수 없어요.'));
   }
-  if (!navigator.geolocation) return getLocationByIP();
+  if (!navigator.geolocation) {
+    return Promise.resolve(useFallbackLocation('이 브라우저는 위치 정보를 지원하지 않아요.'));
+  }
 
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
@@ -253,22 +250,13 @@ function getUserLocation() {
         placeUserLocationMarker(latitude, longitude);
         resolve(userLocation);
       },
-      async (err) => {
-        // 브라우저 위치 실패/시간초과 시 조용히 포기하지 않고 IP 기반 위치로 자동 대체 시도
-        const ipLoc = await getLocationByIP();
-        if (ipLoc) {
-          userLocation = ipLoc;
-          placeUserLocationMarker(ipLoc.lat, ipLoc.lng);
-          resolve(ipLoc);
-          return;
-        }
+      (err) => {
         const reasons = {
-          1: '위치 권한이 거부됐어요. 브라우저 설정에서 이 사이트의 위치 권한을 허용해주세요.',
+          1: '위치 권한이 거부됐어요.',
           2: '위치를 확인할 수 없어요 (GPS/네트워크 문제).',
           3: '위치 확인이 시간 초과됐어요.',
         };
-        mapResultInfo.textContent = `⚠️ ${reasons[err.code] || '위치 정보를 가져오지 못했어요.'} 전국 예시로 대체할게요.`;
-        resolve(null);
+        resolve(useFallbackLocation(reasons[err.code] || '위치 정보를 가져오지 못했어요.'));
       },
       { timeout: 20000, maximumAge: 60000 }, // 맥/데스크톱은 GPS가 없어 와이파이 기반 위치 계산이 느릴 수 있어 넉넉히 잡음
     );

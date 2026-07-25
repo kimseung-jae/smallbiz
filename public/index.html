@@ -25,7 +25,9 @@
         </div>
       </label>
       <div id="mapEl" class="map-el"></div>
+      <button type="button" class="secondary-btn" id="useMyLocationBtn">📍 내 위치로 보기</button>
       <div id="mapResultInfo" class="map-result-info"></div>
+      <div id="nearbyRecoArea" class="nearby-reco"></div>
     </section>
 
     <section class="card">
@@ -38,6 +40,28 @@
         </div>
         <div class="preview-row" id="previewRow"></div>
       </label>
+      <div class="image-source-block">
+        <div class="image-source-title">🔎 실제 웹 이미지 (매장명 기준 검색)</div>
+        <button type="button" class="secondary-btn" id="realImageBtn">매장명으로 실제 이미지 찾기</button>
+        <div class="tab-row" id="realImageTabs" hidden>
+          <button type="button" class="tab-btn active" data-tab="naver">네이버</button>
+          <button type="button" class="tab-btn" data-tab="daum">다음</button>
+        </div>
+        <div id="realImageArea" class="web-image-grid"></div>
+      </div>
+
+      <div class="image-source-block">
+        <div class="image-source-title">🎨 스톡사진 (Pexels — 분위기/카테고리 참고용)</div>
+        <div class="category-chip-row" id="categoryChipRow">
+          <button type="button" class="category-chip category-chip-smart" id="smartCategoryChip">🎯 맞춤</button>
+          <button type="button" class="category-chip" data-q="cozy cafe interior">☕ 카페</button>
+          <button type="button" class="category-chip" data-q="korean bbq restaurant">🥩 고기집</button>
+          <button type="button" class="category-chip" data-q="korean traditional restaurant">🍚 한식</button>
+          <button type="button" class="category-chip" data-q="dessert bakery">🍰 디저트</button>
+          <button type="button" class="category-chip" data-q="bar pub night">🍺 술집</button>
+        </div>
+        <div id="webImageArea" class="web-image-grid"></div>
+      </div>
     </section>
 
     <section class="card">
@@ -52,6 +76,8 @@
       </label>
       <button type="button" class="secondary-btn" id="fetchBlogBtn">📝 블로그 후기에서 소개글 가져오기</button>
       <div id="blogCandidates" class="blog-candidates"></div>
+      <button type="button" class="secondary-btn" id="blogPostBtn">✍️ 블로그 원고 자동 작성 (사장님 블로그용)</button>
+      <div id="blogPostArea" class="blog-post-area"></div>
       <label class="field">
         <span>릴스 배경음악 분위기</span>
         <select id="moodSelect">
@@ -66,9 +92,20 @@
     <button class="cta" id="generateBtn">✨ AI로 포스터·릴스 만들기</button>
 
     <section class="card">
-      <h2 class="step-title">만화로도 만들어보기 <span class="hint">(사진 2장 이상 필요)</span></h2>
-      <button class="cta secondary" id="webtoonBtn">📷 포토툰 만들기</button>
-      <button class="cta secondary" id="illustBtn">🎨 AI 일러스트 만화 만들기 (안자이 미즈마루풍)</button>
+      <h2 class="step-title">리뷰 답글 자동 작성 <span class="hint">(배민·네이버 등 고객 리뷰 답글용)</span></h2>
+      <label class="field">
+        <span>고객이 남긴 리뷰를 붙여넣으세요</span>
+        <textarea id="reviewInput" rows="3" placeholder="예: 맛있어요 근데 배달이 좀 늦었어요"></textarea>
+      </label>
+      <button type="button" class="secondary-btn" id="reviewReplyBtn">💬 답글 후보 만들기</button>
+      <div id="reviewReplyArea" class="blog-candidates"></div>
+    </section>
+
+    <section class="card">
+      <h2 class="step-title">더 만들어보기</h2>
+      <button class="secondary-btn" id="cardNewsBtn">🖼️ 카드뉴스</button>
+      <div id="cardNewsArea" class="card-news-grid"></div>
+      <button class="secondary-btn" id="webtoonBtn">📷 포토툰</button>
       <div id="comicArea"></div>
     </section>
 

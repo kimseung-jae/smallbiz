@@ -12,6 +12,27 @@ function stripHtml(str) {
     .trim();
 }
 
+// AI 요약 없이(폴백) 쓸 때, 블로그 원문 특유의 지저분한 흔적(해시태그 잔뜩, "-끝-", 어중간한 "...")을
+// 정리해서 한 줄 소개로 쓸 만한 형태로 다듬는다.
+function cleanSnippet(text, maxLength = 90) {
+  let s = String(text || '').trim();
+  s = s.replace(/(#[^\s#]+\s*){2,}/g, '').trim(); // 해시태그 나열 구간 제거
+  s = s.replace(/^-+\s*끝\s*-+/, '').trim(); // "-끝-" 같은 블로그 장식 문구 제거
+  s = s.replace(/\.{2,}/g, ' ').replace(/\s{2,}/g, ' ').trim(); // 문장 중간/끝의 "..." 말줄임표 전부 제거
+
+  if (s.length > maxLength) {
+    const cut = s.slice(0, maxLength);
+    const lastEnd = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('!'), cut.lastIndexOf('?'));
+    if (lastEnd > maxLength * 0.4) {
+      s = cut.slice(0, lastEnd + 1);
+    } else {
+      const lastSpace = cut.lastIndexOf(' ');
+      s = lastSpace > 0 ? cut.slice(0, lastSpace) : cut;
+    }
+  }
+  return s.trim();
+}
+
 // 네이버 검색 오픈API(블로그 검색) 결과를 AI가 읽고 "한 줄 소개" 후보를 뽑아주는 라우트.
 // 실제 별점/방문자리뷰 API는 존재하지 않으므로, 블로그 포스트를 근사치 소스로 사용한다.
 // 스크래핑이 아니라 공식 API만 사용 — 네이버 ToS/구조 변경에 영향받지 않도록.
@@ -48,9 +69,11 @@ router.post('/', async (req, res) => {
     }));
 
     if (!process.env.ANTHROPIC_API_KEY) {
-      // AI 요약 없이, 원문 스니펫을 그대로 후보로 제공
-      const candidates = snippets.slice(0, 3).map((s) => s.description).filter(Boolean);
-      return res.json({ candidates, source: 'blog-raw' });
+      // AI 요약 없이, 정리된 스니펫을 후보로 제공 (해시태그/말줄임표 등 제거)
+      const candidates = snippets
+        .map((s) => cleanSnippet(s.description))
+        .filter((s) => s.length >= 5);
+      return res.json({ candidates: candidates.slice(0, 3), source: 'blog-raw' });
     }
 
     const Anthropic = require('@anthropic-ai/sdk');
@@ -82,8 +105,10 @@ ${snippetBlock}
     const text = msg.content.map((block) => (block.type === 'text' ? block.text : '')).join('');
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      const candidates = snippets.slice(0, 3).map((s) => s.description).filter(Boolean);
-      return res.json({ candidates, source: 'blog-raw-fallback' });
+      const candidates = snippets
+        .map((s) => cleanSnippet(s.description))
+        .filter((s) => s.length >= 5);
+      return res.json({ candidates: candidates.slice(0, 3), source: 'blog-raw-fallback' });
     }
     const parsed = JSON.parse(jsonMatch[0]);
     res.json({ candidates: parsed.candidates || [], source: 'blog-ai' });

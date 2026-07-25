@@ -40,9 +40,18 @@ app.use('/api/store-intro', require('./routes/storeIntro'));
 app.use('/api/place-search', require('./routes/placeSearch'));
 app.use('/api/naver-local-search', require('./routes/naverLocalSearch'));
 app.use('/api/nearby-places', require('./routes/nearbyPlaces'));
+app.use('/api/kakao-nearby', require('./routes/kakaoNearby'));
+app.use('/api/kakao-search', require('./routes/kakaoSearch'));
+app.use('/api/review-reply', require('./routes/reviewReply'));
+app.use('/api/image-search', require('./routes/imageSearch'));
+app.use('/api/pexels-search', require('./routes/pexelsSearch'));
+app.use('/api/daum-image-search', require('./routes/daumImageSearch'));
+app.use('/api/image-proxy', require('./routes/imageProxy'));
+app.use('/api/blog-post-draft', require('./routes/blogPostDraft'));
 app.use('/api/reels', require('./routes/reels')(upload));
 app.use('/api/webtoon', require('./routes/webtoon')(upload));
 app.use('/api/illustration-comic', require('./routes/illustrationComic')(upload));
+app.use('/api/card-news', require('./routes/cardNews')(upload));
 app.use('/api/poster', require('./routes/poster')(upload));
 
 app.use((err, req, res, next) => {

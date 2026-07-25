@@ -53,7 +53,7 @@ async function generateIllustration(filePath) {
 module.exports = (upload) => {
   const router = express.Router();
 
-  router.post('/', upload.array('photos', 4), async (req, res) => {
+  router.post('/', upload.array('photos', 6), async (req, res) => {
     if (!process.env.GEMINI_API_KEY) {
       return res.json({
         needsApiKey: true,

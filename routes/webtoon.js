@@ -43,7 +43,7 @@ function escapeHtml(str) {
 module.exports = (upload) => {
   const router = express.Router();
 
-  router.post('/', upload.array('photos', 4), async (req, res) => {
+  router.post('/', upload.array('photos', 6), async (req, res) => {
     const { storeName, useSample } = req.body;
     const files = useSample === 'true' ? getSampleFiles(4) : req.files;
     let captions = [];

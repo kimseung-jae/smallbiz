@@ -41,7 +41,7 @@ module.exports = (upload) => {
   const router = express.Router();
 
   router.post('/', upload.single('photo'), async (req, res) => {
-    const { storeName, headline, subtext, useSample } = req.body;
+    const { storeName, headline, subtext, address, useSample } = req.body;
     const file = useSample === 'true' ? getSampleFiles(1)[0] : req.file;
 
     if (!file) return res.status(400).json({ error: '사진이 필요합니다.' });
@@ -77,7 +77,13 @@ module.exports = (upload) => {
         .replace('__HEADLINE__', escapeHtml(wrappedHeadline))
         .replace(
           '__STORE_BADGE__',
-          storeName ? `<div class="store-badge">${escapeHtml(storeName)}</div>` : '',
+          storeName ? `<div class="store-badge"><span class="dot"></span>${escapeHtml(storeName)}</div>` : '',
+        )
+        .replace(
+          '__STORE_META__',
+          storeName || address
+            ? `<div class="store-meta"><span class="star-rating">★★★★★</span>${address ? `<span class="address-text">${escapeHtml(address)}</span>` : ''}</div>`
+            : '',
         )
         .replace(
           '__SUBTEXT__',

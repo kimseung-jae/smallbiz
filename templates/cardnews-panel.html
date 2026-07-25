@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Pretendard", -apple-system, sans-serif; }
+  .slide {
+    position: relative;
+    width: 1080px;
+    height: 1080px;
+    overflow: hidden;
+    background: #111;
+  }
+  .slide img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: contrast(1.08) saturate(1.15);
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: __OVERLAY__;
+  }
+  .page-badge {
+    position: absolute;
+    top: 40px;
+    right: 40px;
+    background: rgba(255,255,255,0.92);
+    color: #14161a;
+    font-weight: 800;
+    font-size: 22px;
+    padding: 8px 18px;
+    border-radius: 999px;
+    z-index: 5;
+  }
+  .store-badge {
+    position: absolute;
+    top: 40px;
+    left: 40px;
+    background: #fff;
+    color: #14161a;
+    font-weight: 800;
+    font-size: 26px;
+    padding: 12px 22px;
+    border-radius: 999px;
+    z-index: 5;
+  }
+  .content {
+    position: absolute;
+    left: 56px;
+    right: 56px;
+    bottom: 64px;
+    color: #fff;
+    z-index: 5;
+  }
+  .content.center {
+    left: 70px; right: 70px; bottom: auto; top: 50%;
+    transform: translateY(-50%);
+    text-align: center;
+  }
+  .headline {
+    font-size: __HEADLINE_SIZE__px;
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: -1px;
+    white-space: pre-wrap;
+    word-break: keep-all;
+    text-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  .caption {
+    margin-top: 18px;
+    font-size: 32px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.9);
+    white-space: pre-wrap;
+    word-break: keep-all;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+  .accent {
+    width: 70px; height: 7px;
+    background: linear-gradient(to right, #ffd23f, #ff8a3d);
+    border-radius: 4px;
+    margin: 20px 0;
+  }
+  .accent.center { margin: 20px auto; }
+  .cta-btn {
+    display: inline-block;
+    margin-top: 26px;
+    background: linear-gradient(135deg, #ffd23f, #ff8a3d);
+    color: #1a1408;
+    font-weight: 800;
+    font-size: 28px;
+    padding: 16px 36px;
+    border-radius: 999px;
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    __PHOTO__
+    <div class="overlay"></div>
+    __PAGE_BADGE__
+    __STORE_BADGE__
+    __CONTENT__
+  </div>
+</body>
+</html>

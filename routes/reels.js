@@ -127,13 +127,16 @@ module.exports = (upload) => {
         args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
       }
 
+      // 주의: '-shortest'는 이 filter_complex(비디오만 필터링 + 오디오 직접 매핑) 조합에서
+      // 오디오 트랙이 0바이트로 누락되는 ffmpeg 버그가 있어 대신 정확한 길이를 '-t'로 명시한다.
+      const totalDuration = CLIP_SECONDS * files.length;
       args.push(
         '-filter_complex', `[0:v]${drawtext}[v]`,
         '-map', '[v]',
         '-map', '1:a',
         '-c:v', 'libx264',
         '-c:a', 'aac',
-        '-shortest',
+        '-t', String(totalDuration),
         '-pix_fmt', 'yuv420p',
         outPath,
       );

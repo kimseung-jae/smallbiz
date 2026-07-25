@@ -14,5 +14,11 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_IMAGE_MODEL
+        sync: false
+      - key: KAKAO_REST_API_KEY
+        sync: false
+      - key: PEXELS_API_KEY
+        sync: false
       - key: PUPPETEER_SKIP_DOWNLOAD
         value: "false"

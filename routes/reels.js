@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { execFile } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
+const sharp = require('sharp');
 const { getSampleFiles } = require('./sampleMedia');
 
 // Render 무료 플랜(RAM 512MB)에서 1080x1920 인코딩이 메모리를 넘겨 서버 전체가 죽는 문제가 있어
@@ -13,8 +14,9 @@ const HEIGHT = 1280;
 const FPS = 30;
 const CLIP_SECONDS = 3;
 const ENCODE_ARGS = ['-preset', 'veryfast', '-threads', '1'];
-// macOS 시스템 폰트 대신 리포에 번들된 폰트를 써야 리눅스 서버(Render)에서도 자막이 그려짐
-const KOREAN_FONT = path.join(__dirname, '..', 'fonts', 'NotoSansKR-VF.ttf');
+// Render에 올라가는 ffmpeg-static 리눅스 바이너리는 drawtext 필터가 빠져있어서
+// ("No such filter: 'drawtext'") 자막을 sharp로 그린 투명 PNG를 overlay 필터로 합성한다.
+const FONT_BASE64 = fs.readFileSync(path.join(__dirname, '..', 'fonts', 'NotoSansKR-VF.ttf')).toString('base64');
 const MUSIC_DIR = path.join(__dirname, '..', 'music');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 
@@ -50,6 +52,42 @@ function wrapText(text, maxChars = 16) {
   }
   if (current) lines.push(current.trim());
   return lines.join('\n');
+}
+
+function escapeXml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// 자막을 영상 크기(WIDTH x HEIGHT)와 같은 투명 PNG에 그려서 ffmpeg overlay 필터로 얹는다.
+function buildCaptionOverlay(captionText) {
+  const lines = captionText.split('\n').filter(Boolean);
+  if (!lines.length) return null;
+
+  const fontSize = 40;
+  const lineHeight = fontSize * 1.25;
+  const paddingY = 20;
+  const boxHeight = lines.length * lineHeight + paddingY * 2;
+  const boxWidth = WIDTH - 80;
+  const boxX = (WIDTH - boxWidth) / 2;
+  const boxY = HEIGHT - boxHeight - 100;
+  const firstBaseline = boxY + paddingY + fontSize * 0.85;
+  const tspans = lines
+    .map((line, i) => `<tspan x="${WIDTH / 2}" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
+    .join('');
+
+  const svg = `
+<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      @font-face { font-family: 'Noto Sans KR'; src: url(data:font/ttf;base64,${FONT_BASE64}); }
+      text { font-family: 'Noto Sans KR', sans-serif; }
+    </style>
+  </defs>
+  <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="12" fill="rgba(0,0,0,0.55)" />
+  <text x="${WIDTH / 2}" y="${firstBaseline}" font-size="${fontSize}" font-weight="700" fill="#fff" text-anchor="middle">${tspans}</text>
+</svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
 function pickMusic(mood) {
@@ -117,14 +155,19 @@ module.exports = (upload) => {
       const outPath = path.join(OUTPUT_DIR, outName);
 
       const captionText = wrapText(caption || '', 16);
-      const captionPath = path.join(workDir, 'caption.txt');
-      fs.writeFileSync(captionPath, captionText || ' ');
+      const overlayPromise = buildCaptionOverlay(captionText);
 
-      const drawtext = `drawtext=fontfile=${KOREAN_FONT}:textfile=${captionPath}:fontcolor=white:fontsize=56:line_spacing=14:box=1:boxcolor=black@0.55:boxborderw=24:x=(w-text_w)/2:y=h-th-140`;
+      const args = ['-y', '-i', concatPath]; // input 0: video
+      let overlayIndex = null;
+      if (overlayPromise) {
+        const overlayPath = path.join(workDir, 'caption.png');
+        fs.writeFileSync(overlayPath, await overlayPromise);
+        args.push('-i', overlayPath);
+        overlayIndex = 1;
+      }
 
+      const audioIndex = overlayIndex === null ? 1 : 2;
       const musicPath = pickMusic(mood);
-      const args = ['-y', '-i', concatPath];
-
       if (musicPath) {
         args.push('-stream_loop', '-1', '-i', musicPath);
       } else {
@@ -135,9 +178,10 @@ module.exports = (upload) => {
       // 오디오 트랙이 0바이트로 누락되는 ffmpeg 버그가 있어 대신 정확한 길이를 '-t'로 명시한다.
       const totalDuration = CLIP_SECONDS * files.length;
       args.push(
-        '-filter_complex', `[0:v]${drawtext}[v]`,
-        '-map', '[v]',
-        '-map', '1:a',
+        ...(overlayIndex !== null
+          ? ['-filter_complex', `[0:v][${overlayIndex}:v]overlay=0:0[v]`, '-map', '[v]']
+          : ['-map', '0:v']),
+        '-map', `${audioIndex}:a`,
         '-c:v', 'libx264', ...ENCODE_ARGS,
         '-c:a', 'aac',
         '-t', String(totalDuration),

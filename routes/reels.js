@@ -6,10 +6,13 @@ const { execFile } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
 const { getSampleFiles } = require('./sampleMedia');
 
-const WIDTH = 1080;
-const HEIGHT = 1920;
+// Render 무료 플랜(RAM 512MB)에서 1080x1920 인코딩이 메모리를 넘겨 서버 전체가 죽는 문제가 있어
+// 해상도를 낮추고 인코딩 부하를 줄임 (720x1280도 SNS 릴스용으로 충분한 화질)
+const WIDTH = 720;
+const HEIGHT = 1280;
 const FPS = 30;
 const CLIP_SECONDS = 3;
+const ENCODE_ARGS = ['-preset', 'veryfast', '-threads', '1'];
 // macOS 시스템 폰트 대신 리포에 번들된 폰트를 써야 리눅스 서버(Render)에서도 자막이 그려짐
 const KOREAN_FONT = path.join(__dirname, '..', 'fonts', 'NotoSansKR-VF.ttf');
 const MUSIC_DIR = path.join(__dirname, '..', 'music');
@@ -85,7 +88,7 @@ module.exports = (upload) => {
             '-vf', `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},fps=${FPS}`,
             '-an',
             '-pix_fmt', 'yuv420p',
-            '-c:v', 'libx264',
+            '-c:v', 'libx264', ...ENCODE_ARGS,
             clipPath,
           ]);
         } else {
@@ -97,7 +100,7 @@ module.exports = (upload) => {
             '-vf', `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='${zoomExpr}':d=${FPS * CLIP_SECONDS}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`,
             '-t', String(CLIP_SECONDS),
             '-pix_fmt', 'yuv420p',
-            '-c:v', 'libx264',
+            '-c:v', 'libx264', ...ENCODE_ARGS,
             clipPath,
           ]);
         }
@@ -135,7 +138,7 @@ module.exports = (upload) => {
         '-filter_complex', `[0:v]${drawtext}[v]`,
         '-map', '[v]',
         '-map', '1:a',
-        '-c:v', 'libx264',
+        '-c:v', 'libx264', ...ENCODE_ARGS,
         '-c:a', 'aac',
         '-t', String(totalDuration),
         '-pix_fmt', 'yuv420p',

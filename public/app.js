@@ -774,6 +774,7 @@ generateBtn.addEventListener('click', async () => {
 });
 
 async function generatePoster({ storeName, headline, subtext, address }) {
+  posterArea.innerHTML = '<div class="spinner"></div><div class="blog-note">포스터 만드는 중... (첫 요청은 서버가 깨어나는 데 시간이 좀 더 걸릴 수 있어요)</div>';
   try {
     const fd = new FormData();
     fd.append('photo', selectedFiles[0]);

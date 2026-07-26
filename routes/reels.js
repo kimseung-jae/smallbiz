@@ -16,7 +16,6 @@ const CLIP_SECONDS = 3;
 const ENCODE_ARGS = ['-preset', 'veryfast', '-threads', '1'];
 // Render에 올라가는 ffmpeg-static 리눅스 바이너리는 drawtext 필터가 빠져있어서
 // ("No such filter: 'drawtext'") 자막을 sharp로 그린 투명 PNG를 overlay 필터로 합성한다.
-const FONT_BASE64 = fs.readFileSync(path.join(__dirname, '..', 'fonts', 'NotoSansKR-VF.ttf')).toString('base64');
 const MUSIC_DIR = path.join(__dirname, '..', 'music');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 
@@ -79,7 +78,6 @@ function buildCaptionOverlay(captionText) {
 <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
-      @font-face { font-family: 'Noto Sans KR'; src: url(data:font/ttf;base64,${FONT_BASE64}); }
       text { font-family: 'Noto Sans KR', sans-serif; }
     </style>
   </defs>

@@ -5,8 +5,6 @@ const sharp = require('sharp');
 const { getSampleFiles } = require('./sampleMedia');
 
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
-const FONT_PATH = path.join(__dirname, '..', 'fonts', 'NotoSansKR-VF.ttf');
-const FONT_BASE64 = fs.readFileSync(FONT_PATH).toString('base64');
 
 const WIDTH = 1080;
 const HEIGHT = 1350;
@@ -111,10 +109,6 @@ function buildOverlaySvg({ storeName, address, headlineLines, headlineSize, subt
 <svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
-      @font-face {
-        font-family: 'Noto Sans KR';
-        src: url(data:font/ttf;base64,${FONT_BASE64});
-      }
       text { font-family: 'Noto Sans KR', sans-serif; }
     </style>
     <linearGradient id="overlayGradient" x1="0" y1="1" x2="0" y2="0">

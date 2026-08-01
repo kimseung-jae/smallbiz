@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const { filterRelevantImages } = require('../lib/imageRelevance');
 const router = express.Router();
 
 function stripHtml(str) {
@@ -21,7 +22,7 @@ router.get('/', async (req, res) => {
 
   try {
     const response = await axios.get('https://openapi.naver.com/v1/search/image', {
-      params: { query, display: 12, sort: 'sim', filter: 'medium' },
+      params: { query, display: 30, sort: 'sim', filter: 'medium' },
       headers: {
         'X-Naver-Client-Id': process.env.NAVER_CLIENT_ID,
         'X-Naver-Client-Secret': process.env.NAVER_CLIENT_SECRET,
@@ -36,7 +37,7 @@ router.get('/', async (req, res) => {
       height: item.sizeheight,
     }));
 
-    res.json({ images });
+    res.json({ images: filterRelevantImages(images, query).slice(0, 12) });
   } catch (err) {
     console.error('image search error:', err.response?.data || err.message);
     res.status(500).json({ error: '이미지 검색 중 오류가 발생했습니다.', detail: err.message });

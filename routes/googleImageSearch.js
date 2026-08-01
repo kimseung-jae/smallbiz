@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const { filterRelevantImages } = require('../lib/imageRelevance');
 const router = express.Router();
 
 // 구글 프로그래밍 가능 검색엔진(Custom Search JSON API)의 이미지 검색.
@@ -36,7 +37,7 @@ router.get('/', async (req, res) => {
       height: item.image?.height,
     }));
 
-    res.json({ images });
+    res.json({ images: filterRelevantImages(images, query) });
   } catch (err) {
     console.error('google image search error:', err.response?.data || err.message);
     res.status(500).json({ error: '구글 이미지 검색 중 오류가 발생했습니다.', detail: err.message });

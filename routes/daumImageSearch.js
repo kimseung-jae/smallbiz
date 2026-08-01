@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const { filterRelevantImages } = require('../lib/imageRelevance');
 const router = express.Router();
 
 // 다음(Daum) 검색 API의 이미지 검색 — 카카오가 다음을 인수해서 카카오 REST API 키로 바로 사용 가능.
@@ -14,7 +15,7 @@ router.get('/', async (req, res) => {
 
   try {
     const response = await axios.get('https://dapi.kakao.com/v2/search/image', {
-      params: { query, size: 12, sort: 'accuracy' },
+      params: { query, size: 30, sort: 'accuracy' },
       headers: { Authorization: `KakaoAK ${process.env.KAKAO_REST_API_KEY}` },
       timeout: 8000,
     });
@@ -27,7 +28,7 @@ router.get('/', async (req, res) => {
       height: doc.height,
     }));
 
-    res.json({ images });
+    res.json({ images: filterRelevantImages(images, query).slice(0, 12) });
   } catch (err) {
     console.error('daum image search error:', err.response?.data || err.message);
     res.status(500).json({ error: '다음 이미지 검색 중 오류가 발생했습니다.', detail: err.message });

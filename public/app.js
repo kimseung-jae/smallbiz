@@ -990,7 +990,7 @@ async function addShareButton(container, url, filename, mimeType) {
       const file = new File([blob], filename, { type: mimeType });
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: '바쁜 소상공인들을 위한 마케팅 선물세트' });
+        await navigator.share({ files: [file], title: '소상공인 딸깍!' });
       } else {
         await navigator.share({ url: window.location.origin + url });
       }

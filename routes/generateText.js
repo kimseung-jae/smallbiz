@@ -60,6 +60,42 @@ function buildFallbackContent({ storeName, category, features, purpose, region }
   return { sns_captions, blog_post, flyer_text, fallback: true };
 }
 
+async function callAnthropic(prompt) {
+  const Anthropic = require('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const msg = await client.messages.create({
+    model: 'claude-sonnet-5',
+    max_tokens: 1500,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  return msg.content.map((block) => (block.type === 'text' ? block.text : '')).join('');
+}
+
+// OpenRouter는 하나의 키로 여러 모델(Claude 포함)을 OpenAI 호환 형식으로 호출하게 해주는 프록시 서비스
+async function callOpenRouter(prompt) {
+  const model = process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.5';
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://hanul-platform.onrender.com',
+      'X-Title': 'Sosanggongin-Ttalkkak',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 1500,
+    }),
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenRouter API 오류 (${response.status}): ${errText.slice(0, 300)}`);
+  }
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
 router.post('/', async (req, res) => {
   const { storeName, category, features, purpose, region, reviewSnippets } = req.body;
 
@@ -67,19 +103,15 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: '가게명, 업종, 메뉴/특징은 필수입니다.' });
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENROUTER_API_KEY) {
     return res.json(buildFallbackContent({ storeName, category, features, purpose, region }));
   }
 
-  try {
-    const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const reviewBlock = Array.isArray(reviewSnippets) && reviewSnippets.length
+    ? `\n\n참고할 기존 리뷰/후기 스니펫 (실제 손님 반응, 톤 참고용):\n${reviewSnippets.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
+    : '';
 
-    const reviewBlock = Array.isArray(reviewSnippets) && reviewSnippets.length
-      ? `\n\n참고할 기존 리뷰/후기 스니펫 (실제 손님 반응, 톤 참고용):\n${reviewSnippets.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
-      : '';
-
-    const prompt = `당신은 대한민국 소상공인을 위한 홍보 카피라이터입니다. 아래 가게 정보를 바탕으로 홍보 콘텐츠를 만들어주세요.
+  const prompt = `당신은 대한민국 소상공인을 위한 홍보 카피라이터입니다. 아래 가게 정보를 바탕으로 홍보 콘텐츠를 만들어주세요.
 
 가게명: ${storeName}
 ${region ? `지역: ${region}\n` : ''}업종: ${category}
@@ -98,13 +130,11 @@ ${region ? `지역: ${region}\n` : ''}업종: ${category}
   "flyer_text": "..."
 }`;
 
-    const msg = await client.messages.create({
-      model: 'claude-sonnet-5',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }],
-    });
+  try {
+    const text = process.env.OPENROUTER_API_KEY
+      ? await callOpenRouter(prompt)
+      : await callAnthropic(prompt);
 
-    const text = msg.content.map((block) => (block.type === 'text' ? block.text : '')).join('');
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return res.status(502).json({ error: 'AI 응답을 파싱하지 못했습니다.', raw: text });

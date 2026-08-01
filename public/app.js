@@ -613,7 +613,7 @@ function renderImageResults(container, images, creditText) {
 // 실제 웹 이미지 — 네이버 + 다음 이미지 검색을 매장명 기준으로 동시 호출해서 합침
 const realImageTabs = document.getElementById('realImageTabs');
 let realImageResults = { naver: [], daum: [], google: [] };
-let activeRealImageTab = 'naver';
+let activeRealImageTab = 'daum';
 const REAL_IMAGE_TAB_LABEL = { naver: '네이버', daum: '다음', google: '구글' };
 
 function renderActiveRealImageTab(query) {
@@ -658,8 +658,8 @@ realImageBtn.addEventListener('click', async () => {
     realImageResults.google = (googleRes.status === 'fulfilled' && !googleRes.value.needsApiKey) ? (googleRes.value.images || []) : [];
 
     realImageTabs.hidden = false;
-    activeRealImageTab = 'naver';
-    realImageTabs.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'naver'));
+    activeRealImageTab = 'daum';
+    realImageTabs.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'daum'));
     renderActiveRealImageTab(query);
   } catch (err) {
     realImageArea.innerHTML = `<div class="blog-note">오류: ${err.message}</div>`;

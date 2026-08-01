@@ -21,6 +21,18 @@ const nearbyRecoArea = document.getElementById('nearbyRecoArea');
 const webImageBtn = document.getElementById('webImageBtn');
 const webImageArea = document.getElementById('webImageArea');
 
+// 서버가 타임아웃/과부하로 죽으면 Render가 JSON 대신 자체 HTML 에러 페이지를 돌려줘서
+// res.json()이 "Unexpected token '<'"로 깨지는 문제 — 미리 텍스트로 받아서 안전하게 파싱하고,
+// 실패하면 사용자가 이해할 수 있는 한국어 에러 메시지로 바꿔서 던진다.
+async function parseJsonSafe(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error('서버가 잠시 바빠요. 몇 초 후 다시 시도해주세요.');
+  }
+}
+
 async function fetchBlogSuggestions(storeName) {
   if (!storeName) {
     blogCandidates.innerHTML = '<div class="blog-note">매장명을 먼저 입력해주세요.</div>';
@@ -36,7 +48,7 @@ async function fetchBlogSuggestions(storeName) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ storeName }),
     });
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
 
     if (data.needsApiKey) {
       blogCandidates.innerHTML = `<div class="blog-note">${data.message}</div>`;
@@ -127,7 +139,7 @@ blogPostBtn.addEventListener('click', async () => {
         address: selectedStoreAddress,
       }),
     });
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
     if (!res.ok) throw new Error(data.error || '블로그 원고 생성 실패');
 
     blogPostArea.innerHTML = `
@@ -307,7 +319,7 @@ async function fetchNearbyExamples(loc) {
 async function showNearbyRecommendations(loc) {
   try {
     const res = await fetch(`/api/kakao-nearby?lat=${loc.lat}&lng=${loc.lng}&sort=accuracy`);
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
     if (data.needsApiKey) return;
 
     const topN = (data.places || []).slice(0, 10);
@@ -401,7 +413,7 @@ function renderResultList(candidates) {
 async function searchViaOsmFallback(query) {
   try {
     const res = await fetch(`/api/place-search?query=${encodeURIComponent(query)}`);
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
     const fallbackName = query.replace(/\s*(로|길|동|읍|면|시|군|구)\s.*$/, '').trim() || query;
     const candidates = (data.places || []).map((p) => ({
       name: fallbackName, address: p.address, lat: p.lat, lng: p.lng,
@@ -651,7 +663,7 @@ async function searchStockImages(query) {
 
   try {
     const res = await fetch(`/api/pexels-search?query=${encodeURIComponent(query)}`);
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
 
     if (data.needsApiKey) {
       webImageArea.innerHTML = `<div class="blog-note">${data.message}</div>`;
@@ -750,7 +762,7 @@ generateBtn.addEventListener('click', async () => {
         purpose: '신규 고객 유치',
       }),
     });
-    const textData = await textRes.json();
+    const textData = await parseJsonSafe(textRes);
     if (!textRes.ok) throw new Error(textData.error || '문구 생성 실패');
 
     const flyerLines = String(textData.flyer_text || '').split('\n').filter(Boolean);
@@ -784,7 +796,7 @@ async function generatePoster({ storeName, headline, subtext, address }) {
     if (address) fd.append('address', address);
 
     const res = await fetch('/api/poster', { method: 'POST', body: fd });
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
     if (!res.ok) throw new Error(data.error || '포스터 생성 실패');
 
     posterArea.innerHTML = `
@@ -805,7 +817,7 @@ async function generateReels({ caption, mood }) {
     if (mood) fd.append('mood', mood);
 
     const res = await fetch('/api/reels', { method: 'POST', body: fd });
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
     if (!res.ok) throw new Error(data.error || '릴스 생성 실패');
 
     reelsArea.innerHTML = `
@@ -855,7 +867,7 @@ reviewReplyBtn.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ storeName: storeNameInput.value.trim(), review }),
     });
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
     if (!res.ok) throw new Error(data.error || '답글 생성 실패');
 
     const replies = data.replies || [];
@@ -906,7 +918,7 @@ async function generateComic(endpoint, label) {
     fd.append('captions', JSON.stringify([introTextInput.value.trim()]));
 
     const res = await fetch(endpoint, { method: 'POST', body: fd });
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
 
     if (data.needsApiKey) {
       comicArea.innerHTML = `<div class="blog-note">${data.message}</div>`;
@@ -957,7 +969,7 @@ cardNewsBtn.addEventListener('click', async () => {
     fd.append('captions', JSON.stringify(captions));
 
     const res = await fetch('/api/card-news', { method: 'POST', body: fd });
-    const data = await res.json();
+    const data = await parseJsonSafe(res);
     if (!res.ok) throw new Error(data.error || '카드뉴스 생성 실패');
 
     const urls = data.urls || [];

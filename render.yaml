@@ -12,6 +12,8 @@ services:
         sync: false
       - key: OPENROUTER_MODEL
         sync: false
+      - key: OPENROUTER_IMAGE_MODEL
+        sync: false
       - key: NAVER_CLIENT_ID
         sync: false
       - key: NAVER_CLIENT_SECRET

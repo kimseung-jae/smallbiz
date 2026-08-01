@@ -1,4 +1,5 @@
 const express = require('express');
+const { callAI, hasAIKey } = require('../lib/aiClient');
 const router = express.Router();
 
 // 주의: 짧은 한 글자짜리 키워드(예: '짜')는 '진짜'처럼 무관한 단어에 우연히 포함되어
@@ -58,14 +59,11 @@ router.post('/', async (req, res) => {
 
   const sentiment = detectSentiment(review);
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!hasAIKey()) {
     return res.json({ replies: buildFallbackReplies(storeName, sentiment), fallback: true, sentiment });
   }
 
   try {
-    const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
     const prompt = `당신은 "${storeName || '소상공인 매장'}"을 운영하는 사장님입니다. 아래 고객 리뷰에 대한 답글을 작성해주세요.
 
 고객 리뷰: "${review}"
@@ -84,13 +82,7 @@ router.post('/', async (req, res) => {
   "replies": ["...", "...", "..."]
 }`;
 
-    const msg = await client.messages.create({
-      model: 'claude-sonnet-5',
-      max_tokens: 800,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const text = msg.content.map((block) => (block.type === 'text' ? block.text : '')).join('');
+    const text = await callAI(prompt, 800);
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return res.json({ replies: buildFallbackReplies(storeName, sentiment), fallback: true, sentiment });

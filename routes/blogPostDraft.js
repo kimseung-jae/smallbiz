@@ -1,4 +1,5 @@
 const express = require('express');
+const { callAI, hasAIKey } = require('../lib/aiClient');
 const router = express.Router();
 
 // 한글 받침 유무에 따라 올바른 조사를 골라줌 — "OO을(를)" 같은 어색한 표기 대신 자연스러운 문장을 위해
@@ -48,14 +49,11 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: '매장명이 필요합니다.' });
     }
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!hasAIKey()) {
       return res.json(buildFallbackPost({ storeName, category, features, address }));
     }
 
     try {
-      const Anthropic = require('@anthropic-ai/sdk');
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
       const prompt = `당신은 "${storeName}"을 운영하는 사장님입니다. 본인 명의 블로그(네이버 블로그 등)에 직접 올릴 매장 소개 홍보 포스트를 써주세요.
 
 가게명: ${storeName}
@@ -74,13 +72,7 @@ ${category ? `업종: ${category}\n` : ''}${features ? `대표메뉴/강점: ${f
   "body": "..."
 }`;
 
-      const msg = await client.messages.create({
-        model: 'claude-sonnet-5',
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: prompt }],
-      });
-
-      const text = msg.content.map((block) => (block.type === 'text' ? block.text : '')).join('');
+      const text = await callAI(prompt, 1500);
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         return res.json(buildFallbackPost({ storeName, category, features, address }));

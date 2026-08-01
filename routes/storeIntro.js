@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const { callAI, hasAIKey } = require('../lib/aiClient');
 const router = express.Router();
 
 function stripHtml(str) {
@@ -68,16 +69,13 @@ router.post('/', async (req, res) => {
       description: stripHtml(item.description),
     }));
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!hasAIKey()) {
       // AI 요약 없이, 정리된 스니펫을 후보로 제공 (해시태그/말줄임표 등 제거)
       const candidates = snippets
         .map((s) => cleanSnippet(s.description))
         .filter((s) => s.length >= 5);
       return res.json({ candidates: candidates.slice(0, 3), source: 'blog-raw' });
     }
-
-    const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
     const snippetBlock = snippets
       .map((s, i) => `${i + 1}. ${s.title} - ${s.description}`)
@@ -96,13 +94,7 @@ ${snippetBlock}
   "candidates": ["...", "...", "..."]
 }`;
 
-    const msg = await client.messages.create({
-      model: 'claude-sonnet-5',
-      max_tokens: 500,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const text = msg.content.map((block) => (block.type === 'text' ? block.text : '')).join('');
+    const text = await callAI(prompt, 500);
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       const candidates = snippets

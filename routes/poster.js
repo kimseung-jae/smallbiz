@@ -34,10 +34,13 @@ function wrapLines(text, maxChars) {
 }
 
 // 폰트별 고정폭이 아니라서 대략치 — 한글/전각 문자는 넓게, 영문/숫자는 좁게 잡아 배지·라인 폭을 추정한다.
+// 주의: ★(U+2605)는 코드포인트상 "좁은 문자" 구간에 들어가지만 실제로는 한글만큼 넓게 렌더링돼서
+// 별도로 넓은 문자 취급하지 않으면 뒤따르는 요소(구분선/주소)와 겹쳐 보인다.
 function approxTextWidth(str, fontSize) {
   let width = 0;
   for (const ch of String(str)) {
     if (ch === ' ') width += fontSize * 0.28;
+    else if (ch === '★' || ch === '☆') width += fontSize * 1.05;
     else if (ch.codePointAt(0) > 0x2e7f) width += fontSize * 0.98;
     else width += fontSize * 0.58;
   }

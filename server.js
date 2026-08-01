@@ -51,6 +51,7 @@ app.use('/api/google-image-search', require('./routes/googleImageSearch'));
 app.use('/api/image-proxy', require('./routes/imageProxy'));
 app.use('/api/blog-post-draft', require('./routes/blogPostDraft'));
 app.use('/api/reels', require('./routes/reels')(upload));
+app.use('/api/debug-restyle', require('./routes/debugRestyle')(upload));
 app.use('/api/webtoon', require('./routes/webtoon')(upload));
 app.use('/api/illustration-comic', require('./routes/illustrationComic')(upload));
 app.use('/api/card-news', require('./routes/cardNews')(upload));

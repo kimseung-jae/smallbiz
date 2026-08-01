@@ -612,9 +612,9 @@ function renderImageResults(container, images, creditText) {
 
 // 실제 웹 이미지 — 네이버 + 다음 이미지 검색을 매장명 기준으로 동시 호출해서 합침
 const realImageTabs = document.getElementById('realImageTabs');
-let realImageResults = { naver: [], daum: [], google: [] };
+let realImageResults = { naver: [], daum: [] };
 let activeRealImageTab = 'daum';
-const REAL_IMAGE_TAB_LABEL = { naver: '네이버', daum: '다음', google: '구글' };
+const REAL_IMAGE_TAB_LABEL = { naver: '네이버', daum: '다음' };
 
 function renderActiveRealImageTab(query) {
   const images = realImageResults[activeRealImageTab] || [];
@@ -647,15 +647,13 @@ realImageBtn.addEventListener('click', async () => {
   realImageArea.innerHTML = '<div class="blog-note">이미지 찾는 중...</div>';
 
   try {
-    const [naverRes, daumRes, googleRes] = await Promise.allSettled([
+    const [naverRes, daumRes] = await Promise.allSettled([
       fetch(`/api/image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
       fetch(`/api/daum-image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
-      fetch(`/api/google-image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
     ]);
 
     realImageResults.naver = (naverRes.status === 'fulfilled' && !naverRes.value.needsApiKey) ? (naverRes.value.images || []) : [];
     realImageResults.daum = (daumRes.status === 'fulfilled' && !daumRes.value.needsApiKey) ? (daumRes.value.images || []) : [];
-    realImageResults.google = (googleRes.status === 'fulfilled' && !googleRes.value.needsApiKey) ? (googleRes.value.images || []) : [];
 
     realImageTabs.hidden = false;
     activeRealImageTab = 'daum';

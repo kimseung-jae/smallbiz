@@ -85,13 +85,16 @@ router.post('/', async (req, res) => {
 
 ${snippetBlock}
 
-이 내용을 참고해서, 이 가게를 홍보하는 콘텐츠에 쓸 "한 줄 소개" 후보를 3개 만들어주세요.
-각 후보는 대표메뉴/강점/분위기 중 하나에 초점을 맞춘 한 문장(40자 이내)이어야 합니다.
+이 내용을 참고해서 두 가지를 만들어주세요.
+1. candidates: 이 가게를 홍보하는 콘텐츠에 쓸 "한 줄 소개" 후보 3개. 각 후보는 대표메뉴/강점/분위기 중 하나에 초점을 맞춘 한 문장(40자 이내).
+2. combined: 위 후보들이 담고 있는 여러 강점(대표메뉴, 이벤트/서비스, 공간/규모 등)을 하나로 자연스럽게 종합한 한 줄 소개 (50자 내외, 나열식이 아니라 매끄러운 한 문장으로).
+
 블로그에 없는 사실을 지어내지 말고, 실제 언급된 내용만 반영하세요.
 
 반드시 아래 JSON 형식으로만 응답하세요.
 {
-  "candidates": ["...", "...", "..."]
+  "candidates": ["...", "...", "..."],
+  "combined": "..."
 }`;
 
     const text = await callAI(prompt, 500);
@@ -103,7 +106,7 @@ ${snippetBlock}
       return res.json({ candidates: candidates.slice(0, 3), source: 'blog-raw-fallback' });
     }
     const parsed = JSON.parse(jsonMatch[0]);
-    res.json({ candidates: parsed.candidates || [], source: 'blog-ai' });
+    res.json({ candidates: parsed.candidates || [], combined: parsed.combined || null, source: 'blog-ai' });
   } catch (err) {
     console.error('store-intro error:', err.message);
     res.status(500).json({ error: '블로그 후기를 가져오는 중 오류가 발생했습니다.', detail: err.message });

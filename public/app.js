@@ -62,11 +62,20 @@ async function fetchBlogSuggestions(storeName) {
       return;
     }
 
-    blogCandidates.innerHTML = candidates
+    const combinedHtml = data.combined
+      ? `<button type="button" class="blog-candidate blog-candidate-combined" data-combined="1">✨ 종합해서 자동으로: ${data.combined}</button>`
+      : '';
+
+    blogCandidates.innerHTML = combinedHtml + candidates
       .map((c, i) => `<button type="button" class="blog-candidate" data-idx="${i}">${i + 1}. ${c}</button>`)
       .join('') + '<div class="blog-note">마음에 드는 걸 탭하면 아래 소개글에 채워져요. 직접 수정도 가능해요.</div>';
 
-    blogCandidates.querySelectorAll('.blog-candidate').forEach((btn) => {
+    if (data.combined) {
+      blogCandidates.querySelector('.blog-candidate-combined').addEventListener('click', () => {
+        introTextInput.value = data.combined;
+      });
+    }
+    blogCandidates.querySelectorAll('.blog-candidate:not(.blog-candidate-combined)').forEach((btn) => {
       btn.addEventListener('click', () => {
         introTextInput.value = candidates[Number(btn.dataset.idx)];
       });

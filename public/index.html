@@ -80,23 +80,6 @@
       <button type="button" class="secondary-btn" id="blogPostBtn">✍️ 블로그 원고 자동 작성 (사장님 블로그용)</button>
       <div id="blogPostArea" class="blog-post-area"></div>
       <label class="field">
-        <span>포스터 레이아웃</span>
-        <div class="select-chip-row" id="posterTemplateRow">
-          <button type="button" class="select-chip active" data-template="bottom">하단정렬</button>
-          <button type="button" class="select-chip" data-template="center">중앙정렬</button>
-          <button type="button" class="select-chip" data-template="top-band">상단 컬러띠</button>
-        </div>
-      </label>
-      <label class="field">
-        <span>포스터 사진 크롭 위치 <span class="hint">(간판·음식이 잘리면 바꿔보세요)</span></span>
-        <div class="select-chip-row" id="posterFocusRow">
-          <button type="button" class="select-chip active" data-focus="">자동</button>
-          <button type="button" class="select-chip" data-focus="0">위</button>
-          <button type="button" class="select-chip" data-focus="0.5">가운데</button>
-          <button type="button" class="select-chip" data-focus="1">아래</button>
-        </div>
-      </label>
-      <label class="field">
         <span>릴스 배경음악 분위기</span>
         <select id="moodSelect">
           <option value="">무음</option>
@@ -104,12 +87,6 @@
           <option value="calm">잔잔한 (한식·노포·공방)</option>
           <option value="trendy">트렌디한 (술집·펍·젊은 상권)</option>
         </select>
-      </label>
-      <label class="field">
-        <span>릴스 컷별 자막 <span class="hint">(선택, 비워두면 AI가 만든 문구 하나로 통일)</span></span>
-        <div id="reelsCaptionArea" class="reels-caption-area">
-          <div class="reels-caption-empty">사진을 올리면 컷마다 자막을 따로 입력할 수 있어요.</div>
-        </div>
       </label>
     </section>
 
@@ -128,37 +105,10 @@
     <section class="card">
       <h2 class="step-title">더 만들어보기</h2>
       <button class="secondary-btn" id="cardNewsBtn">🖼️ 카드뉴스</button>
-      <label class="field">
-        <span>카드뉴스 슬라이드 문구 <span class="hint">(선택, 비워두면 한 줄 소개에서 자동으로 나눠 채움)</span></span>
-        <button type="button" class="secondary-btn" id="cardNewsAiCaptionBtn">✨ 문구 자동 만들기</button>
-        <div id="cardNewsCaptionArea" class="reels-caption-area">
-          <div class="reels-caption-empty">사진을 올리면 슬라이드마다 문구를 따로 입력할 수 있어요.</div>
-        </div>
-      </label>
-      <label class="field">
-        <span>카드뉴스 마지막 장 CTA 문구 <span class="hint">(선택, 비워두면 "지금 방문해보세요")</span></span>
-        <input type="text" id="cardNewsCtaInput" placeholder="예: 지금 예약하세요" />
-      </label>
       <div id="cardNewsArea" class="card-news-grid"></div>
       <button class="secondary-btn" id="webtoonBtn">📷 포토툰</button>
-      <label class="field">
-        <span>포토툰 말풍선 대사 <span class="hint">(선택, 비워두면 말풍선 없이 만들어짐)</span></span>
-        <button type="button" class="secondary-btn" id="webtoonAiCaptionBtn">✨ 대사 자동 만들기</button>
-        <div id="webtoonCaptionArea" class="reels-caption-area">
-          <div class="reels-caption-empty">사진을 올리면 컷마다 말풍선 대사를 따로 입력할 수 있어요.</div>
-        </div>
-      </label>
       <div id="comicArea"></div>
       <button class="secondary-btn" id="illustComicBtn">🎨 AI 일러스트 만화</button>
-      <label class="field">
-        <span>일러스트 그림체</span>
-        <div class="select-chip-row" id="illustStyleRow">
-          <button type="button" class="select-chip active" data-style="mizumaru">미즈마루풍</button>
-          <button type="button" class="select-chip" data-style="watercolor">수채화풍</button>
-          <button type="button" class="select-chip" data-style="pen">펜드로잉풍</button>
-          <button type="button" class="select-chip" data-style="pastelAnime">파스텔 애니풍</button>
-        </div>
-      </label>
       <div id="illustComicArea"></div>
     </section>
 

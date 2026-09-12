@@ -173,43 +173,6 @@ html, body {
   border-color: var(--blue);
 }
 
-.reels-caption-area {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.reels-caption-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.reels-caption-row .reels-caption-index {
-  flex: none;
-  width: 40px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--gray-400);
-  text-align: center;
-}
-.reels-caption-row input {
-  flex: 1;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  border: 1.5px solid var(--gray-200);
-  font-size: 14px;
-  font-family: inherit;
-  background: var(--white);
-  color: var(--ink);
-}
-.reels-caption-row input:focus {
-  outline: none;
-  border-color: var(--blue);
-}
-.reels-caption-empty {
-  font-size: 13px;
-  color: var(--gray-400);
-}
-
 .search-row {
   display: flex;
   gap: 8px;
@@ -312,27 +275,6 @@ html, body {
   font-weight: 800;
 }
 .category-chip-smart.active { background: linear-gradient(135deg, #ffd23f, #ff8a3d); border-color: transparent; color: #1a1408; }
-
-.select-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.select-chip {
-  border: 1.5px solid var(--gray-200);
-  background: var(--white);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--gray-600);
-  cursor: pointer;
-}
-.select-chip:active, .select-chip.active {
-  background: var(--blue-tint);
-  border-color: var(--blue);
-  color: var(--blue-dark);
-}
 
 .tab-row {
   display: flex;

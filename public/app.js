@@ -20,15 +20,8 @@ const blogCandidates = document.getElementById('blogCandidates');
 const nearbyRecoArea = document.getElementById('nearbyRecoArea');
 const webImageBtn = document.getElementById('webImageBtn');
 const webImageArea = document.getElementById('webImageArea');
-const reelsCaptionArea = document.getElementById('reelsCaptionArea');
-const cardNewsCaptionArea = document.getElementById('cardNewsCaptionArea');
-const cardNewsAiCaptionBtn = document.getElementById('cardNewsAiCaptionBtn');
-const cardNewsCtaInput = document.getElementById('cardNewsCtaInput');
-const webtoonCaptionArea = document.getElementById('webtoonCaptionArea');
-const webtoonAiCaptionBtn = document.getElementById('webtoonAiCaptionBtn');
 const illustComicBtn = document.getElementById('illustComicBtn');
 const illustComicArea = document.getElementById('illustComicArea');
-const illustStyleRow = document.getElementById('illustStyleRow');
 
 // 서버가 타임아웃/과부하로 죽으면 Render가 JSON 대신 자체 HTML 에러 페이지를 돌려줘서
 // res.json()이 "Unexpected token '<'"로 깨지는 문제 — 미리 텍스트로 받아서 안전하게 파싱하고,
@@ -545,42 +538,10 @@ function removeSelectedFile(index) {
   renderPreview();
 }
 
-// 릴스 컷별 자막은 File 객체에 직접 매달아둔다(_reelsCaption) — 사진이 추가/삭제/순서 변경돼도
-// 배열 인덱스를 따로 맞춰줄 필요 없이 항상 그 사진의 값을 그대로 들고 다닌다.
-function renderReelsCaptionInputs() {
-  if (!reelsCaptionArea) return;
-  reelsCaptionArea.innerHTML = '';
-  if (!selectedFiles.length) {
-    reelsCaptionArea.innerHTML = '<div class="reels-caption-empty">사진을 올리면 컷마다 자막을 따로 입력할 수 있어요.</div>';
-    return;
-  }
-  selectedFiles.forEach((file, i) => {
-    const row = document.createElement('div');
-    row.className = 'reels-caption-row';
-
-    const index = document.createElement('span');
-    index.className = 'reels-caption-index';
-    index.textContent = `컷 ${i + 1}`;
-    row.appendChild(index);
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = '이 컷에 넣을 자막 (선택)';
-    input.value = file._reelsCaption || '';
-    input.addEventListener('input', () => {
-      file._reelsCaption = input.value;
-    });
-    row.appendChild(input);
-
-    reelsCaptionArea.appendChild(row);
-  });
-}
-
 function renderPreview() {
   previewRow.innerHTML = '';
   if (!selectedFiles.length) {
     uploadEmpty.hidden = false;
-    renderReelsCaptionInputs();
     return;
   }
   uploadEmpty.hidden = true;
@@ -613,69 +574,6 @@ function renderPreview() {
     wrap.appendChild(removeBtn);
 
     previewRow.appendChild(wrap);
-  });
-  renderReelsCaptionInputs();
-  renderCardNewsCaptionInputs();
-  renderWebtoonCaptionInputs();
-}
-
-// 포토툰 말풍선 대사도 같은 방식으로 File 객체에 매달아 관리한다(_webtoonCaption).
-function renderWebtoonCaptionInputs() {
-  if (!webtoonCaptionArea) return;
-  webtoonCaptionArea.innerHTML = '';
-  if (!selectedFiles.length) {
-    webtoonCaptionArea.innerHTML = '<div class="reels-caption-empty">사진을 올리면 컷마다 말풍선 대사를 따로 입력할 수 있어요.</div>';
-    return;
-  }
-  selectedFiles.forEach((file, i) => {
-    const row = document.createElement('div');
-    row.className = 'reels-caption-row';
-
-    const index = document.createElement('span');
-    index.className = 'reels-caption-index';
-    index.textContent = `컷 ${i + 1}`;
-    row.appendChild(index);
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = '말풍선 대사 (선택, 12자 이내)';
-    input.value = file._webtoonCaption || '';
-    input.addEventListener('input', () => {
-      file._webtoonCaption = input.value;
-    });
-    row.appendChild(input);
-
-    webtoonCaptionArea.appendChild(row);
-  });
-}
-
-// 카드뉴스 슬라이드 문구도 릴스 컷별 자막과 같은 방식으로 File 객체에 매달아 관리한다(_cardNewsCaption).
-function renderCardNewsCaptionInputs() {
-  if (!cardNewsCaptionArea) return;
-  cardNewsCaptionArea.innerHTML = '';
-  if (!selectedFiles.length) {
-    cardNewsCaptionArea.innerHTML = '<div class="reels-caption-empty">사진을 올리면 슬라이드마다 문구를 따로 입력할 수 있어요.</div>';
-    return;
-  }
-  selectedFiles.forEach((file, i) => {
-    const row = document.createElement('div');
-    row.className = 'reels-caption-row';
-
-    const index = document.createElement('span');
-    index.className = 'reels-caption-index';
-    index.textContent = `${i + 1}장`;
-    row.appendChild(index);
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = i === 0 ? '표지 문구 (선택)' : '이 슬라이드에 넣을 문구 (선택)';
-    input.value = file._cardNewsCaption || '';
-    input.addEventListener('input', () => {
-      file._cardNewsCaption = input.value;
-    });
-    row.appendChild(input);
-
-    cardNewsCaptionArea.appendChild(row);
   });
 }
 
@@ -801,27 +699,6 @@ document.querySelectorAll('.category-chip:not(.category-chip-smart)').forEach((c
   });
 });
 
-let selectedPosterTemplate = 'bottom';
-let selectedPosterFocusY = '';
-
-const posterTemplateRow = document.getElementById('posterTemplateRow');
-posterTemplateRow.querySelectorAll('.select-chip').forEach((chip) => {
-  chip.addEventListener('click', () => {
-    posterTemplateRow.querySelectorAll('.select-chip').forEach((c) => c.classList.remove('active'));
-    chip.classList.add('active');
-    selectedPosterTemplate = chip.dataset.template;
-  });
-});
-
-const posterFocusRow = document.getElementById('posterFocusRow');
-posterFocusRow.querySelectorAll('.select-chip').forEach((chip) => {
-  chip.addEventListener('click', () => {
-    posterFocusRow.querySelectorAll('.select-chip').forEach((c) => c.classList.remove('active'));
-    chip.classList.add('active');
-    selectedPosterFocusY = chip.dataset.focus;
-  });
-});
-
 // 매장 카테고리/이름/소개글에서 키워드를 찾아 어울리는 영어 스톡사진 검색어로 매핑
 // (Pexels는 영어 검색이 훨씬 정확해서, 한글 업종명을 영어로 번역해주는 역할)
 const CATEGORY_KEYWORD_MAP = [
@@ -909,7 +786,7 @@ generateBtn.addEventListener('click', async () => {
     resultBox.hidden = false;
 
     const posterPromise = generatePoster({ storeName, headline, subtext, address: selectedStoreAddress });
-    const reelsPromise = generateReels({ caption, mood: moodSelect.value });
+    const reelsPromise = generateReels({ storeName, introText, caption, mood: moodSelect.value });
 
     await Promise.allSettled([posterPromise, reelsPromise]);
     statusBox.hidden = true;
@@ -929,8 +806,6 @@ async function generatePoster({ storeName, headline, subtext, address }) {
     fd.append('headline', headline);
     fd.append('subtext', subtext);
     if (address) fd.append('address', address);
-    fd.append('templateId', selectedPosterTemplate);
-    if (selectedPosterFocusY !== '') fd.append('focusY', selectedPosterFocusY);
 
     const res = await fetch('/api/poster', { method: 'POST', body: fd });
     const data = await parseJsonSafe(res);
@@ -946,16 +821,37 @@ async function generatePoster({ storeName, headline, subtext, address }) {
   }
 }
 
-async function generateReels({ caption, mood }) {
+// 컷마다 다른 자막을 사용자가 직접 입력하지 않아도, AI가 자동으로 채워준다.
+// 키가 없거나 호출이 실패해도 조용히 넘어가고 서버가 기존처럼 caption 하나로 통일해서 쓴다.
+async function fetchAutoCaptions(endpoint, body) {
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await parseJsonSafe(res);
+    if (!res.ok || data.needsApiKey) return null;
+    return Array.isArray(data.captions) && data.captions.length ? data.captions : null;
+  } catch {
+    return null;
+  }
+}
+
+async function generateReels({ storeName, introText, caption, mood }) {
   try {
     const fd = new FormData();
     selectedFiles.forEach((f) => fd.append('photos', f));
     fd.append('caption', caption);
     if (mood) fd.append('mood', mood);
 
-    // 컷마다 자막을 하나라도 입력했으면 그걸 우선 쓰고, 전부 비어있으면 서버가 caption 하나로 통일해서 쓴다.
-    const perCutCaptions = selectedFiles.map((f) => (f._reelsCaption || '').trim());
-    if (perCutCaptions.some(Boolean)) {
+    const perCutCaptions = await fetchAutoCaptions('/api/reels/captions', {
+      storeName,
+      category: selectedStoreCategory,
+      features: introText,
+      cutCount: selectedFiles.length,
+    });
+    if (perCutCaptions) {
       fd.append('captions', JSON.stringify(perCutCaptions));
     }
 
@@ -1055,15 +951,22 @@ async function generateComic(endpoint, label) {
   webtoonBtn.disabled = true;
 
   try {
+    const storeName = storeNameInput.value.trim();
+    const introText = introTextInput.value.trim();
+
     const fd = new FormData();
     selectedFiles.forEach((f) => fd.append('photos', f));
-    fd.append('storeName', storeNameInput.value.trim());
+    fd.append('storeName', storeName);
 
-    // 컷마다 입력/자동생성된 말풍선 대사가 하나라도 있으면 그걸 쓰고, 전부 비어있으면
-    // 예전처럼 한 줄 소개를 첫 컷에만 넣는다(기존 동작 유지).
-    const perCutCaptions = selectedFiles.map((f) => (f._webtoonCaption || '').trim());
-    const captions = perCutCaptions.some(Boolean) ? perCutCaptions : [introTextInput.value.trim()];
-    fd.append('captions', JSON.stringify(captions));
+    // 말풍선 대사는 AI가 자동으로 채워준다 — 실패하거나 키가 없으면 한 줄 소개를 첫 컷에만 넣는
+    // 예전 방식으로 조용히 대체된다.
+    const autoCaptions = await fetchAutoCaptions('/api/webtoon/captions', {
+      storeName,
+      category: selectedStoreCategory,
+      features: introText,
+      panelCount: Math.min(selectedFiles.length, 6),
+    });
+    fd.append('captions', JSON.stringify(autoCaptions || [introText]));
 
     const res = await fetch(endpoint, { method: 'POST', body: fd });
     const data = await parseJsonSafe(res);
@@ -1085,62 +988,6 @@ async function generateComic(endpoint, label) {
 
 webtoonBtn.addEventListener('click', () => generateComic('/api/webtoon', '포토툰'));
 
-webtoonAiCaptionBtn.addEventListener('click', async () => {
-  if (!selectedFiles.length) {
-    comicArea.innerHTML = '<div class="blog-note">사진을 1장 이상 올려주세요.</div>';
-    return;
-  }
-  const storeName = storeNameInput.value.trim();
-  const introText = introTextInput.value.trim();
-  if (!storeName) {
-    comicArea.innerHTML = '<div class="blog-note">매장명을 먼저 입력해주세요.</div>';
-    return;
-  }
-
-  webtoonAiCaptionBtn.disabled = true;
-  webtoonAiCaptionBtn.textContent = '대사 만드는 중...';
-
-  try {
-    const panelCount = Math.min(selectedFiles.length, 6);
-    const res = await fetch('/api/webtoon/captions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        storeName,
-        category: selectedStoreCategory,
-        features: introText,
-        panelCount,
-      }),
-    });
-    const data = await parseJsonSafe(res);
-
-    if (data.needsApiKey) {
-      comicArea.innerHTML = `<div class="blog-note">${data.message}</div>`;
-      return;
-    }
-    if (!res.ok) throw new Error(data.error || '대사 생성 실패');
-
-    (data.captions || []).forEach((caption, i) => {
-      if (selectedFiles[i]) selectedFiles[i]._webtoonCaption = caption;
-    });
-    renderWebtoonCaptionInputs();
-  } catch (err) {
-    comicArea.innerHTML = `<div class="blog-note">대사 생성 실패: ${err.message}</div>`;
-  } finally {
-    webtoonAiCaptionBtn.disabled = false;
-    webtoonAiCaptionBtn.textContent = '✨ 대사 자동 만들기';
-  }
-});
-
-let selectedIllustStyle = 'mizumaru';
-illustStyleRow.querySelectorAll('.select-chip').forEach((chip) => {
-  chip.addEventListener('click', () => {
-    illustStyleRow.querySelectorAll('.select-chip').forEach((c) => c.classList.remove('active'));
-    chip.classList.add('active');
-    selectedIllustStyle = chip.dataset.style;
-  });
-});
-
 illustComicBtn.addEventListener('click', async () => {
   if (selectedFiles.length < 2) {
     illustComicArea.innerHTML = '<div class="blog-note">AI 일러스트 만화는 사진이 최소 2장 필요해요.</div>';
@@ -1150,14 +997,20 @@ illustComicBtn.addEventListener('click', async () => {
   illustComicBtn.disabled = true;
 
   try {
+    const storeName = storeNameInput.value.trim();
+    const introText = introTextInput.value.trim();
+
     const fd = new FormData();
     selectedFiles.forEach((f) => fd.append('photos', f));
-    fd.append('storeName', storeNameInput.value.trim());
-    fd.append('style', selectedIllustStyle);
+    fd.append('storeName', storeName);
 
-    const perCutCaptions = selectedFiles.map((f) => (f._webtoonCaption || '').trim());
-    const captions = perCutCaptions.some(Boolean) ? perCutCaptions : [introTextInput.value.trim()];
-    fd.append('captions', JSON.stringify(captions));
+    const autoCaptions = await fetchAutoCaptions('/api/webtoon/captions', {
+      storeName,
+      category: selectedStoreCategory,
+      features: introText,
+      panelCount: Math.min(selectedFiles.length, 4),
+    });
+    fd.append('captions', JSON.stringify(autoCaptions || [introText]));
 
     const res = await fetch('/api/illustration-comic', { method: 'POST', body: fd });
     const data = await parseJsonSafe(res);
@@ -1185,52 +1038,6 @@ illustComicBtn.addEventListener('click', async () => {
   }
 });
 
-cardNewsAiCaptionBtn.addEventListener('click', async () => {
-  if (!selectedFiles.length) {
-    cardNewsArea.innerHTML = '<div class="blog-note">사진을 1장 이상 올려주세요.</div>';
-    return;
-  }
-  const storeName = storeNameInput.value.trim();
-  const introText = introTextInput.value.trim();
-  if (!storeName) {
-    cardNewsArea.innerHTML = '<div class="blog-note">매장명을 먼저 입력해주세요.</div>';
-    return;
-  }
-
-  cardNewsAiCaptionBtn.disabled = true;
-  cardNewsAiCaptionBtn.textContent = '문구 만드는 중...';
-
-  try {
-    const res = await fetch('/api/card-news/captions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        storeName,
-        category: selectedStoreCategory,
-        features: introText,
-        slideCount: selectedFiles.length,
-      }),
-    });
-    const data = await parseJsonSafe(res);
-
-    if (data.needsApiKey) {
-      cardNewsArea.innerHTML = `<div class="blog-note">${data.message}</div>`;
-      return;
-    }
-    if (!res.ok) throw new Error(data.error || '문구 생성 실패');
-
-    (data.captions || []).forEach((caption, i) => {
-      if (selectedFiles[i]) selectedFiles[i]._cardNewsCaption = caption;
-    });
-    renderCardNewsCaptionInputs();
-  } catch (err) {
-    cardNewsArea.innerHTML = `<div class="blog-note">문구 생성 실패: ${err.message}</div>`;
-  } finally {
-    cardNewsAiCaptionBtn.disabled = false;
-    cardNewsAiCaptionBtn.textContent = '✨ 문구 자동 만들기';
-  }
-});
-
 cardNewsBtn.addEventListener('click', async () => {
   if (!selectedFiles.length) {
     cardNewsArea.innerHTML = '<div class="blog-note">사진을 1장 이상 올려주세요.</div>';
@@ -1247,17 +1054,16 @@ cardNewsBtn.addEventListener('click', async () => {
   cardNewsArea.innerHTML = '<div class="blog-note">카드뉴스 만드는 중...</div>';
 
   try {
-    // 슬라이드별 문구는 우선 "문구 자동 만들기"로 채웠거나 사용자가 직접 입력한 값을 쓰고,
-    // 하나도 없으면 기존처럼 한 줄 소개에서 자동으로 나눠서 채운다.
+    // 슬라이드별 문구는 AI가 자동으로 만들어준다 — 실패하거나 키가 없으면 한 줄 소개를
+    // 쉼표 단위로 나눠 채우는 예전 방식으로 조용히 대체된다.
     const parts = introText ? introText.split(/[,·]/).map((s) => s.trim()).filter(Boolean) : [];
-    const autoCaptions = selectedFiles.map((_, i) => {
-      if (i === 0) return introText;
-      return parts[i - 1] || '';
-    });
-    const manualCaptions = selectedFiles.map((f) => (f._cardNewsCaption || '').trim());
-    const captions = manualCaptions.some(Boolean)
-      ? selectedFiles.map((f, i) => (f._cardNewsCaption || '').trim() || autoCaptions[i])
-      : autoCaptions;
+    const fallbackCaptions = selectedFiles.map((_, i) => (i === 0 ? introText : parts[i - 1] || ''));
+    const captions = await fetchAutoCaptions('/api/card-news/captions', {
+      storeName,
+      category: selectedStoreCategory,
+      features: introText,
+      slideCount: selectedFiles.length,
+    }) || fallbackCaptions;
 
     const fd = new FormData();
     selectedFiles.forEach((f) => fd.append('photos', f));
@@ -1265,8 +1071,6 @@ cardNewsBtn.addEventListener('click', async () => {
     fd.append('headline', captions[0] || introText || storeName);
     fd.append('address', selectedStoreAddress);
     fd.append('captions', JSON.stringify(captions));
-    const ctaText = cardNewsCtaInput.value.trim();
-    if (ctaText) fd.append('ctaText', ctaText);
 
     const res = await fetch('/api/card-news', { method: 'POST', body: fd });
     const data = await parseJsonSafe(res);

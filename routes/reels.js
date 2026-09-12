@@ -6,7 +6,7 @@ const { execFile } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
 const sharp = require('sharp');
 const { getSampleFiles } = require('./sampleMedia');
-const { hasImageAIKey, restyleImageAsAnimation } = require('../lib/aiClient');
+const { hasImageAIKey, restyleImageAsAnimation, callAI, hasAIKey } = require('../lib/aiClient');
 
 // Render 무료 플랜(RAM 512MB)에서 1080x1920 인코딩이 메모리를 넘겨 서버 전체가 죽는 문제가 있어
 // 해상도를 낮추고 인코딩 부하를 줄임 (720x1280도 SNS 릴스용으로 충분한 화질)
@@ -99,6 +99,44 @@ function pickMusic(mood) {
 
 module.exports = (upload) => {
   const router = express.Router();
+
+  // 컷마다 다른 자막이 자동으로 채워지도록, 가게명/업종/한줄소개로 컷 수만큼 짧은 자막을 만들어주는 엔드포인트.
+  // 메인 생성 흐름에서 사용자가 아무것도 입력하지 않아도 조용히 호출된다 — 키가 없거나 실패하면
+  // 호출부가 기존처럼 caption 하나로 통일해서 쓰도록 필요한 정보만 응답한다.
+  router.post('/captions', async (req, res) => {
+    const { storeName, category, features, cutCount } = req.body;
+    const count = Math.max(1, Math.min(6, Number(cutCount) || 1));
+
+    if (!storeName) {
+      return res.status(400).json({ error: '매장명이 필요합니다.' });
+    }
+    if (!hasAIKey()) {
+      return res.json({ needsApiKey: true });
+    }
+
+    const prompt = `당신은 소상공인 홍보 릴스(짧은 세로 영상) 자막을 쓰는 카피라이터입니다.
+가게명: ${storeName}
+업종/특징: ${category || ''} ${features || ''}
+
+이 릴스는 총 ${count}컷입니다. 각 컷에 들어갈 짧은 자막을 정확히 ${count}개 만들어주세요.
+- 각 자막은 16자 이내로 짧고 강렬하게
+- 순서대로 가게 소개 → 메뉴/특징 → 방문 유도 흐름이 되게
+
+반드시 아래 JSON 형식으로만 응답하세요. 다른 설명은 붙이지 마세요.
+{"captions": ["...", "..."]}`;
+
+    try {
+      const text = await callAI(prompt, 500);
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return res.status(502).json({ error: 'AI 응답을 파싱하지 못했습니다.' });
+      const parsed = JSON.parse(jsonMatch[0]);
+      const captions = Array.isArray(parsed.captions) ? parsed.captions.slice(0, count) : [];
+      res.json({ captions });
+    } catch (err) {
+      console.error('reels captions error:', err.message);
+      res.status(500).json({ error: '자막 생성 중 오류가 발생했습니다.', detail: err.message });
+    }
+  });
 
   router.post('/', upload.array('photos', 6), async (req, res) => {
     const { caption, mood, useSample } = req.body;

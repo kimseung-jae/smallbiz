@@ -1,13 +1,12 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const axios = require('axios');
 const { getSampleFiles } = require('./sampleMedia');
 const { getBrowser } = require('../lib/browser');
+const { hasImageAIKey, restyleImageWithPrompt } = require('../lib/aiClient');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'illustration-panel.html');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
-const GEMINI_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 
 const LAYOUTS = {
   2: { cols: '1fr', rows: '600px 460px', areas: `"p1" "p2"` },
@@ -29,7 +28,7 @@ const STYLE_PROMPTS = {
 스타일 특징: 깔끔한 셀 애니메이션 라인, 부드러운 파스텔 색감의 셀 쉐이딩, 큼직하고 또렷한 눈매 표현, 화사하고 사랑스러운 분위기.
 중요: 이미지 안에 글자, 텍스트, 말풍선을 절대 넣지 마세요. 오직 일러스트 그림만 그려주세요. 원본 사진의 구도와 소재(사람/사물/공간)는 유지하되, 그림체만 위 스타일로 바꿔주세요.`,
 };
-const DEFAULT_STYLE = 'pastelAnime';
+const DEFAULT_STYLE = 'mizumaru';
 
 function toBase64(filePath) {
   const ext = path.extname(filePath).slice(1) || 'jpeg';
@@ -41,35 +40,22 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// OpenRouter 경유로 그림체를 바꾼다 — 이미 릴스 사진 스타일 변환에 쓰던 것과 같은 키(OPENROUTER_API_KEY)라
+// 구글 Gemini 직접 호출(별도 결제/크레딧)보다 이미 설정된 키를 그대로 활용할 수 있다.
 async function generateIllustration(filePath, stylePrompt) {
   const { mime, data } = toBase64(filePath);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`;
-
-  const response = await axios.post(url, {
-    contents: [{
-      parts: [
-        { text: stylePrompt },
-        { inline_data: { mime_type: mime, data } },
-      ],
-    }],
-    generationConfig: { responseModalities: ['IMAGE'] },
-  }, { headers: { 'Content-Type': 'application/json' } });
-
-  const parts = response.data?.candidates?.[0]?.content?.parts || [];
-  const imagePart = parts.find((p) => p.inlineData || p.inline_data);
-  const inline = imagePart?.inlineData || imagePart?.inline_data;
-  if (!inline?.data) throw new Error('제미나이가 이미지를 반환하지 않았습니다.');
-  return Buffer.from(inline.data, 'base64');
+  const buffer = Buffer.from(data, 'base64');
+  return restyleImageWithPrompt(buffer, mime, stylePrompt);
 }
 
 module.exports = (upload) => {
   const router = express.Router();
 
   router.post('/', upload.array('photos', 6), async (req, res) => {
-    if (!process.env.GEMINI_API_KEY) {
+    if (!hasImageAIKey()) {
       return res.json({
         needsApiKey: true,
-        message: '제미나이 API 키가 설정되지 않아 AI 일러스트 만화를 만들 수 없어요. .env에 GEMINI_API_KEY를 추가해주세요. 그 전까지는 "포토툰" 모드(/api/webtoon)를 이용해주세요.',
+        message: 'AI 이미지 생성 키가 설정되지 않아 AI 일러스트 만화를 만들 수 없어요. .env에 OPENROUTER_API_KEY를 추가해주세요. 그 전까지는 "포토툰" 모드(/api/webtoon)를 이용해주세요.',
       });
     }
 
@@ -113,9 +99,9 @@ module.exports = (upload) => {
             tempPaths.push(tempPath);
             dataUri = `data:image/png;base64,${buf.toString('base64')}`;
           } else {
-            const geminiError = result.reason?.response?.data?.error;
-            console.error(`illustration comic panel ${i} failed, using original photo:`, geminiError || result.reason?.message);
-            if (geminiError?.status === 'RESOURCE_EXHAUSTED') quotaExhausted = true;
+            const reasonMessage = result.reason?.message || '';
+            console.error(`illustration comic panel ${i} failed, using original photo:`, reasonMessage);
+            if (/429|quota|credit|RESOURCE_EXHAUSTED/i.test(reasonMessage)) quotaExhausted = true;
             replacedIndexes.push(i);
             const { mime, data } = toBase64(inputFiles[i].path);
             dataUri = `data:${mime};base64,${data}`;
@@ -152,7 +138,7 @@ module.exports = (upload) => {
         url: `/output/${outName}`,
         replacedIndexes,
         quotaMessage: quotaExhausted
-          ? 'Google AI 크레딧이 부족해서 일부 컷은 원본 사진으로 대체됐어요. https://ai.studio/projects 에서 결제를 확인해주세요.'
+          ? 'OpenRouter 크레딧이 부족해서 일부 컷은 원본 사진으로 대체됐어요. https://openrouter.ai/credits 에서 잔액을 확인해주세요.'
           : null,
       });
     } catch (err) {

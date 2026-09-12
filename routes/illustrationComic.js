@@ -18,6 +18,9 @@ const LAYOUTS = {
 const STYLE_PROMPTS = {
   mizumaru: `이 사진을 참고해서, 무라카미 하루키 에세이 삽화로 유명한 안자이 미즈마루(安西水丸) 화풍에 대한 오마주 일러스트로 다시 그려주세요.
 스타일 특징: 단순하고 담백한 펜 선, 두껍지 않은 윤곽선, 파스텔톤의 은은한 색감, 여백을 살린 미니멀한 구도, 손그림 느낌의 살짝 삐뚤빼뚤한 라인, 유머러스하고 따뜻한 분위기.
+아주 중요 — 반드시 지켜주세요: 사진 속 세부 디테일(재료 질감, 간판 글씨, 배경 소품 하나하나)을 정교하게 재현하려 하지 마세요.
+오히려 과감하게 단순화·생략해서 형태만 알아볼 수 있는 수준으로 뭉뚱그려 그려주세요. 애니메이션 배경 원화처럼 정교하고 사실적으로 그리면 안 됩니다 —
+선 몇 개와 평면적인 색 면(flat color)만으로 툭툭 그린 듯한, 잡지 에세이 한 켠에 실릴 법한 가벼운 삽화여야 합니다. 그림자·명암·질감 표현은 최소화하세요.
 중요: 이미지 안에 글자, 텍스트, 말풍선을 절대 넣지 마세요. 오직 일러스트 그림만 그려주세요. 원본 사진의 구도와 소재(사람/사물/공간)는 유지하되, 그림체만 위 스타일로 바꿔주세요.`,
   watercolor: `이 사진을 참고해서, 은은하게 번지는 수채화 일러스트로 다시 그려주세요.
 스타일 특징: 투명한 수채 물감의 번짐과 얼룩, 부드러운 색 경계, 종이 질감, 잔잔하고 따뜻한 파스텔 색조.
@@ -63,7 +66,7 @@ module.exports = (upload) => {
       });
     }
 
-    const { storeName, useSample, style } = req.body;
+    const { storeName, address, useSample, style } = req.body;
     const files = useSample === 'true' ? getSampleFiles(4) : req.files;
     let captions = [];
     try {
@@ -118,7 +121,12 @@ module.exports = (upload) => {
         })
         .join('\n');
 
-      const titleBar = storeName ? `<div class="title-bar">${escapeHtml(storeName)}</div>` : '';
+      const titleBar = storeName
+        ? `<div class="title-bar">
+            <div class="store-name">${escapeHtml(storeName)}</div>
+            ${address ? `<div class="store-address">${escapeHtml(address)}</div>` : ''}
+          </div>`
+        : '';
 
       let html = fs.readFileSync(TEMPLATE_PATH, 'utf-8');
       html = html

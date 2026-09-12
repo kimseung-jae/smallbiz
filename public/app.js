@@ -1047,6 +1047,7 @@ illustComicBtn.addEventListener('click', async () => {
     const fd = new FormData();
     selectedFiles.forEach((f) => fd.append('photos', f));
     fd.append('storeName', storeName);
+    if (selectedStoreAddress) fd.append('address', selectedStoreAddress);
 
     // 실제 고객 리뷰가 붙여넣어져 있으면(리뷰 답글 칸) 그 내용을 말풍선에 그대로 쓰고,
     // 없으면 기존처럼 AI가 대사를 지어낸다.

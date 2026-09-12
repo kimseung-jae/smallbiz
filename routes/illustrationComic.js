@@ -102,6 +102,7 @@ module.exports = (upload) => {
       );
 
       const replacedIndexes = [];
+      const debugReasons = [];
       const panelsHtml = results
         .map((result, i) => {
           let dataUri;
@@ -112,7 +113,9 @@ module.exports = (upload) => {
             tempPaths.push(tempPath);
             dataUri = `data:image/png;base64,${buf.toString('base64')}`;
           } else {
-            console.error(`illustration comic panel ${i} failed, using original photo:`, result.reason?.message);
+            const reason = result.reason?.response?.data || result.reason?.message;
+            console.error(`illustration comic panel ${i} failed, using original photo:`, reason);
+            debugReasons.push(reason);
             replacedIndexes.push(i);
             const { mime, data } = toBase64(inputFiles[i].path);
             dataUri = `data:${mime};base64,${data}`;
@@ -145,7 +148,7 @@ module.exports = (upload) => {
       const outPath = path.join(OUTPUT_DIR, outName);
       await pageEl.screenshot({ path: outPath });
 
-      res.json({ url: `/output/${outName}`, replacedIndexes });
+      res.json({ url: `/output/${outName}`, replacedIndexes, debugReasons });
     } catch (err) {
       console.error('illustration comic error:', err.response?.data || err.message);
       res.status(500).json({

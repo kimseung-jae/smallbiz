@@ -2,8 +2,8 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const puppeteer = require('puppeteer');
 const { getSampleFiles } = require('./sampleMedia');
+const { getBrowser } = require('../lib/browser');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'illustration-panel.html');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
@@ -15,9 +15,21 @@ const LAYOUTS = {
   4: { cols: '1fr 1fr 1fr', rows: '560px 380px', areas: `"p1 p1 p1" "p2 p3 p4"` },
 };
 
-const STYLE_PROMPT = `이 사진을 참고해서, 무라카미 하루키 에세이 삽화로 유명한 안자이 미즈마루(安西水丸) 화풍에 대한 오마주 일러스트로 다시 그려주세요.
+const STYLE_PROMPTS = {
+  mizumaru: `이 사진을 참고해서, 무라카미 하루키 에세이 삽화로 유명한 안자이 미즈마루(安西水丸) 화풍에 대한 오마주 일러스트로 다시 그려주세요.
 스타일 특징: 단순하고 담백한 펜 선, 두껍지 않은 윤곽선, 파스텔톤의 은은한 색감, 여백을 살린 미니멀한 구도, 손그림 느낌의 살짝 삐뚤빼뚤한 라인, 유머러스하고 따뜻한 분위기.
-중요: 이미지 안에 글자, 텍스트, 말풍선을 절대 넣지 마세요. 오직 일러스트 그림만 그려주세요. 원본 사진의 구도와 소재(사람/사물/공간)는 유지하되, 그림체만 위 스타일로 바꿔주세요.`;
+중요: 이미지 안에 글자, 텍스트, 말풍선을 절대 넣지 마세요. 오직 일러스트 그림만 그려주세요. 원본 사진의 구도와 소재(사람/사물/공간)는 유지하되, 그림체만 위 스타일로 바꿔주세요.`,
+  watercolor: `이 사진을 참고해서, 은은하게 번지는 수채화 일러스트로 다시 그려주세요.
+스타일 특징: 투명한 수채 물감의 번짐과 얼룩, 부드러운 색 경계, 종이 질감, 잔잔하고 따뜻한 파스텔 색조.
+중요: 이미지 안에 글자, 텍스트, 말풍선을 절대 넣지 마세요. 오직 일러스트 그림만 그려주세요. 원본 사진의 구도와 소재(사람/사물/공간)는 유지하되, 그림체만 위 스타일로 바꿔주세요.`,
+  pen: `이 사진을 참고해서, 가는 펜으로 그린 흑백 펜 드로잉(선화) 일러스트로 다시 그려주세요.
+스타일 특징: 촘촘한 해칭·크로스해칭 선으로 명암을 표현, 뚜렷한 윤곽선, 잉크 느낌의 질감, 스케치북에 그린 듯한 손그림 느낌.
+중요: 이미지 안에 글자, 텍스트, 말풍선을 절대 넣지 마세요. 오직 일러스트 그림만 그려주세요. 원본 사진의 구도와 소재(사람/사물/공간)는 유지하되, 그림체만 위 스타일로 바꿔주세요.`,
+  pastelAnime: `이 사진을 참고해서, 파스텔톤 애니메이션풍 일러스트로 다시 그려주세요.
+스타일 특징: 깔끔한 셀 애니메이션 라인, 부드러운 파스텔 색감의 셀 쉐이딩, 큼직하고 또렷한 눈매 표현, 화사하고 사랑스러운 분위기.
+중요: 이미지 안에 글자, 텍스트, 말풍선을 절대 넣지 마세요. 오직 일러스트 그림만 그려주세요. 원본 사진의 구도와 소재(사람/사물/공간)는 유지하되, 그림체만 위 스타일로 바꿔주세요.`,
+};
+const DEFAULT_STYLE = 'mizumaru';
 
 function toBase64(filePath) {
   const ext = path.extname(filePath).slice(1) || 'jpeg';
@@ -29,14 +41,14 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-async function generateIllustration(filePath) {
+async function generateIllustration(filePath, stylePrompt) {
   const { mime, data } = toBase64(filePath);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   const response = await axios.post(url, {
     contents: [{
       parts: [
-        { text: STYLE_PROMPT },
+        { text: stylePrompt },
         { inline_data: { mime_type: mime, data } },
       ],
     }],
@@ -61,7 +73,7 @@ module.exports = (upload) => {
       });
     }
 
-    const { storeName, useSample } = req.body;
+    const { storeName, useSample, style } = req.body;
     const files = useSample === 'true' ? getSampleFiles(4) : req.files;
     let captions = [];
     try {
@@ -74,24 +86,38 @@ module.exports = (upload) => {
       return res.status(400).json({ error: 'AI 일러스트 만화 생성에는 사진이 최소 2개 필요합니다.' });
     }
 
-    let browser;
+    const stylePrompt = STYLE_PROMPTS[style] || STYLE_PROMPTS[DEFAULT_STYLE];
+
+    let page;
     const tempPaths = [];
     try {
       const count = Math.min(files.length, 4);
       const layout = LAYOUTS[count];
       const inputFiles = files.slice(0, count);
 
-      const illustrationBuffers = await Promise.all(
-        inputFiles.map((f) => generateIllustration(f.path)),
+      // 컷 하나가 실패(모델 오류/타임아웃)해도 전체가 에러로 끝나지 않도록 allSettled로 동시 호출하고,
+      // 실패한 컷은 원본 사진을 그대로 써서 나머지는 정상적으로 만들어지게 한다.
+      const results = await Promise.allSettled(
+        inputFiles.map((f) => generateIllustration(f.path, stylePrompt)),
       );
 
-      const panelsHtml = illustrationBuffers
-        .map((buf, i) => {
-          const tempPath = path.join(OUTPUT_DIR, `_tmp-illust-${Date.now()}-${i}.png`);
-          fs.writeFileSync(tempPath, buf);
-          tempPaths.push(tempPath);
+      const replacedIndexes = [];
+      const panelsHtml = results
+        .map((result, i) => {
+          let dataUri;
+          if (result.status === 'fulfilled') {
+            const buf = result.value;
+            const tempPath = path.join(OUTPUT_DIR, `_tmp-illust-${Date.now()}-${i}.png`);
+            fs.writeFileSync(tempPath, buf);
+            tempPaths.push(tempPath);
+            dataUri = `data:image/png;base64,${buf.toString('base64')}`;
+          } else {
+            console.error(`illustration comic panel ${i} failed, using original photo:`, result.reason?.message);
+            replacedIndexes.push(i);
+            const { mime, data } = toBase64(inputFiles[i].path);
+            dataUri = `data:${mime};base64,${data}`;
+          }
 
-          const dataUri = `data:image/png;base64,${buf.toString('base64')}`;
           const caption = escapeHtml(captions[i] || '');
           const bubblePos = i % 2 === 0 ? 'top' : 'bottom';
           const bubbleHtml = caption ? `<div class="bubble ${bubblePos}">${caption}</div>` : '';
@@ -109,8 +135,8 @@ module.exports = (upload) => {
         .replace('__TITLE_BAR__', titleBar)
         .replace('__PANELS__', panelsHtml);
 
-      browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
-      const page = await browser.newPage();
+      const browser = await getBrowser();
+      page = await browser.newPage();
       await page.setViewport({ width: 1080, height: 100 });
       await page.setContent(html, { waitUntil: 'networkidle0' });
 
@@ -119,7 +145,7 @@ module.exports = (upload) => {
       const outPath = path.join(OUTPUT_DIR, outName);
       await pageEl.screenshot({ path: outPath });
 
-      res.json({ url: `/output/${outName}` });
+      res.json({ url: `/output/${outName}`, replacedIndexes });
     } catch (err) {
       console.error('illustration comic error:', err.response?.data || err.message);
       res.status(500).json({
@@ -127,7 +153,7 @@ module.exports = (upload) => {
         detail: err.response?.data?.error?.message || err.message,
       });
     } finally {
-      if (browser) await browser.close();
+      if (page) await page.close();
       if (files) {
         for (const f of files) if (!f.isSample) fs.rm(f.path, { force: true }, () => {});
       }

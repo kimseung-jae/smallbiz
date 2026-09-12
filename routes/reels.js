@@ -13,7 +13,6 @@ const { hasImageAIKey, restyleImageAsAnimation } = require('../lib/aiClient');
 const WIDTH = 720;
 const HEIGHT = 1280;
 const FPS = 30;
-const CLIP_SECONDS = 3;
 const ENCODE_ARGS = ['-preset', 'veryfast', '-threads', '1'];
 // Render에 올라가는 ffmpeg-static 리눅스 바이너리는 drawtext 필터가 빠져있어서
 // ("No such filter: 'drawtext'") 자막을 sharp로 그린 투명 PNG를 overlay 필터로 합성한다.
@@ -109,6 +108,19 @@ module.exports = (upload) => {
       return res.status(400).json({ error: '사진/영상을 최소 1개 이상 업로드해야 합니다.' });
     }
 
+    // captions[i]가 있으면 컷마다 다른 자막을 쓰고, 없으면 기존처럼 caption 하나를 전체 영상에 쓴다.
+    let perCutCaptions = [];
+    try {
+      perCutCaptions = JSON.parse(req.body.captions || '[]');
+    } catch {
+      perCutCaptions = [];
+    }
+    const usePerCutCaptions = Array.isArray(perCutCaptions) && perCutCaptions.some((c) => c && c.trim());
+
+    // 사진이 1장이면 3초, 6장이면 18초로 들쭉날쭉하던 것을 사진 장수에 맞춰 컷 길이를 2~4초 사이에서
+    // 자동으로 정해서 전체 길이가 대략 12~15초 안에 들어오게 맞춘다.
+    const clipSeconds = Math.min(4, Math.max(2, 15 / files.length));
+
     const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reels-'));
     const clipPaths = [];
 
@@ -129,50 +141,95 @@ module.exports = (upload) => {
         const sourcePath = sourcePaths[i];
         const isVideo = files[i].mimetype.startsWith('video/');
 
-        if (isVideo) {
-          await run([
-            '-y',
-            '-i', sourcePath,
-            '-t', String(CLIP_SECONDS),
-            '-vf', `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},fps=${FPS}`,
-            '-an',
-            '-pix_fmt', 'yuv420p',
-            '-c:v', 'libx264', ...ENCODE_ARGS,
-            clipPath,
-          ]);
-        } else {
-          const zoomExpr = i % 2 === 0 ? 'min(zoom+0.0015,1.2)' : 'if(lte(zoom,1.0),1.2,max(1.0,zoom-0.0015))';
-          await run([
-            '-y',
-            '-loop', '1',
-            '-i', sourcePath,
-            '-vf', `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='${zoomExpr}':d=${FPS * CLIP_SECONDS}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`,
-            '-t', String(CLIP_SECONDS),
-            '-pix_fmt', 'yuv420p',
-            '-c:v', 'libx264', ...ENCODE_ARGS,
-            clipPath,
-          ]);
+        // 컷별 자막(captions[i])이 있으면 이 컷을 만드는 단계에서 바로 구워 넣는다 —
+        // 그래야 뒤에서 xfade로 컷끼리 전환할 때 자막도 같이 자연스럽게 전환된다.
+        let captionOverlayPath = null;
+        if (usePerCutCaptions) {
+          const cutCaptionText = wrapText(perCutCaptions[i] || '', 16);
+          const overlayBuffer = await buildCaptionOverlay(cutCaptionText);
+          if (overlayBuffer) {
+            captionOverlayPath = path.join(workDir, `cut_caption_${i}.png`);
+            fs.writeFileSync(captionOverlayPath, overlayBuffer);
+          }
         }
+
+        const baseFilter = isVideo
+          ? `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},fps=${FPS}`
+          : (() => {
+              const zoomExpr = i % 2 === 0 ? 'min(zoom+0.0015,1.2)' : 'if(lte(zoom,1.0),1.2,max(1.0,zoom-0.0015))';
+              return `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='${zoomExpr}':d=${Math.round(FPS * clipSeconds)}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`;
+            })();
+
+        const args = ['-y'];
+        if (isVideo) {
+          args.push('-i', sourcePath);
+        } else {
+          args.push('-loop', '1', '-i', sourcePath);
+        }
+        if (captionOverlayPath) args.push('-i', captionOverlayPath);
+        args.push('-t', String(clipSeconds));
+        if (captionOverlayPath) {
+          args.push('-filter_complex', `[0:v]${baseFilter}[base];[base][1:v]overlay=0:0[v]`, '-map', '[v]');
+        } else {
+          args.push('-vf', baseFilter, '-map', '0:v');
+        }
+        args.push('-an', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', ...ENCODE_ARGS, clipPath);
+
+        await run(args);
         clipPaths.push(clipPath);
       }
 
-      const listPath = path.join(workDir, 'list.txt');
-      fs.writeFileSync(listPath, clipPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
+      // 컷끼리 뚝뚝 끊기지 않도록 concat 대신 xfade로 0.4초 크로스페이드 전환을 준다.
+      // xfade는 겹치는 구간만큼 전체 길이가 짧아지므로(클립 N개, 겹침 t초 → N*clipSeconds-(N-1)*t)
+      // 최종 길이도 그에 맞춰 다시 계산해야 한다.
+      const XFADE_DURATION = 0.4;
+      let baseVideoPath;
+      let totalDuration;
 
-      const concatPath = path.join(workDir, 'concat.mp4');
-      await run(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', concatPath]);
+      if (clipPaths.length === 1) {
+        baseVideoPath = clipPaths[0];
+        totalDuration = clipSeconds;
+      } else {
+        const xfadeArgs = ['-y'];
+        for (const p of clipPaths) xfadeArgs.push('-i', p);
+
+        const filterParts = [];
+        let prevLabel = '0:v';
+        totalDuration = clipSeconds;
+        for (let i = 1; i < clipPaths.length; i++) {
+          const offset = i * (clipSeconds - XFADE_DURATION);
+          const outLabel = i === clipPaths.length - 1 ? 'xfinal' : `x${i}`;
+          filterParts.push(`[${prevLabel}][${i}:v]xfade=transition=fade:duration=${XFADE_DURATION}:offset=${offset}[${outLabel}]`);
+          prevLabel = outLabel;
+          totalDuration += clipSeconds - XFADE_DURATION;
+        }
+
+        xfadeArgs.push(
+          '-filter_complex', filterParts.join(';'),
+          '-map', '[xfinal]',
+          '-pix_fmt', 'yuv420p',
+          '-c:v', 'libx264', ...ENCODE_ARGS,
+        );
+        baseVideoPath = path.join(workDir, 'xfade.mp4');
+        xfadeArgs.push(baseVideoPath);
+        await run(xfadeArgs);
+      }
 
       const outName = `reels-${Date.now()}.mp4`;
       const outPath = path.join(OUTPUT_DIR, outName);
 
-      const captionText = wrapText(caption || '', 16);
-      const overlayPromise = buildCaptionOverlay(captionText);
+      // 컷별 자막을 이미 각 클립에 구웠으면 전체 영상에 또 얹지 않는다.
+      let overlayBuffer = null;
+      if (!usePerCutCaptions) {
+        const captionText = wrapText(caption || '', 16);
+        overlayBuffer = await buildCaptionOverlay(captionText);
+      }
 
-      const args = ['-y', '-i', concatPath]; // input 0: video
+      const args = ['-y', '-i', baseVideoPath]; // input 0: video
       let overlayIndex = null;
-      if (overlayPromise) {
+      if (overlayBuffer) {
         const overlayPath = path.join(workDir, 'caption.png');
-        fs.writeFileSync(overlayPath, await overlayPromise);
+        fs.writeFileSync(overlayPath, overlayBuffer);
         args.push('-i', overlayPath);
         overlayIndex = 1;
       }
@@ -185,14 +242,18 @@ module.exports = (upload) => {
         args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
       }
 
+      // 배경음악이 뚝 끊기지 않도록 시작 1초 페이드인, 끝 1.5초 페이드아웃을 준다.
+      const fadeOutStart = Math.max(0, totalDuration - 1.5);
+      const audioFilter = musicPath ? `afade=t=in:st=0:d=1,afade=t=out:st=${fadeOutStart}:d=1.5` : null;
+
       // 주의: '-shortest'는 이 filter_complex(비디오만 필터링 + 오디오 직접 매핑) 조합에서
       // 오디오 트랙이 0바이트로 누락되는 ffmpeg 버그가 있어 대신 정확한 길이를 '-t'로 명시한다.
-      const totalDuration = CLIP_SECONDS * files.length;
       args.push(
         ...(overlayIndex !== null
           ? ['-filter_complex', `[0:v][${overlayIndex}:v]overlay=0:0[v]`, '-map', '[v]']
           : ['-map', '0:v']),
         '-map', `${audioIndex}:a`,
+        ...(audioFilter ? ['-af', audioFilter] : []),
         '-c:v', 'libx264', ...ENCODE_ARGS,
         '-c:a', 'aac',
         '-t', String(totalDuration),

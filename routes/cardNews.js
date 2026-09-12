@@ -1,8 +1,9 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const puppeteer = require('puppeteer');
 const { getSampleFiles } = require('./sampleMedia');
+const { callAI, hasAIKey } = require('../lib/aiClient');
+const { getBrowser } = require('../lib/browser');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'cardnews-panel.html');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
@@ -47,8 +48,48 @@ function extractVideoFrame(videoPath) {
 module.exports = (upload) => {
   const router = express.Router();
 
+  // 슬라이드별 문구를 사용자가 다 직접 쓰지 않아도 되도록, 가게명/업종/특징으로
+  // 슬라이드 수에 맞는 문구를 한 번에 만들어주는 엔드포인트 (routes/generateText.js의 AI 문구 생성과 동일한 callAI 사용)
+  router.post('/captions', async (req, res) => {
+    const { storeName, category, features, slideCount } = req.body;
+    const count = Math.max(1, Math.min(6, Number(slideCount) || 1));
+
+    if (!storeName) {
+      return res.status(400).json({ error: '매장명이 필요합니다.' });
+    }
+
+    if (!hasAIKey()) {
+      return res.json({
+        needsApiKey: true,
+        message: 'AI 문구 생성 키가 없어서 슬라이드 문구를 자동으로 만들 수 없어요. 직접 입력해주세요.',
+      });
+    }
+
+    const prompt = `당신은 소상공인 홍보 카드뉴스를 만드는 카피라이터입니다.
+가게명: ${storeName}
+업종/특징: ${category || ''} ${features || ''}
+
+카드뉴스는 총 ${count}장입니다. 각 장에 들어갈 짧은 문구를 정확히 ${count}개 만들어주세요.
+- 1번째 문구는 표지에 들어갈 강렬한 한 줄 (12자 내외)
+${count > 1 ? '- 마지막 문구는 방문을 유도하는 한 줄\n' : ''}${count > 2 ? '- 중간 문구들은 메뉴/특징/강점을 하나씩 소개하는 한 줄 (16자 내외)\n' : ''}
+반드시 아래 JSON 형식으로만 응답하세요. 다른 설명은 붙이지 마세요.
+{"captions": ["...", "..."]}`;
+
+    try {
+      const text = await callAI(prompt, 500);
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return res.status(502).json({ error: 'AI 응답을 파싱하지 못했습니다.' });
+      const parsed = JSON.parse(jsonMatch[0]);
+      const captions = Array.isArray(parsed.captions) ? parsed.captions.slice(0, count) : [];
+      res.json({ captions });
+    } catch (err) {
+      console.error('card-news captions error:', err.message);
+      res.status(500).json({ error: '문구 생성 중 오류가 발생했습니다.', detail: err.message });
+    }
+  });
+
   router.post('/', upload.array('photos', 6), async (req, res) => {
-    const { storeName, headline, address, useSample } = req.body;
+    const { storeName, headline, address, ctaText, useSample } = req.body;
     const files = useSample === 'true' ? getSampleFiles(4) : req.files;
     // captions[i]는 i번째 슬라이드(사진) 전용 문구 — 사용자가 슬라이드별로 직접 입력/수정한 값
     let captions = [];
@@ -62,13 +103,13 @@ module.exports = (upload) => {
       return res.status(400).json({ error: '사진이 최소 1개 이상 필요합니다.' });
     }
 
-    let browser;
+    let page;
     const extractedFrames = [];
     const outUrls = [];
     try {
       const template = fs.readFileSync(TEMPLATE_PATH, 'utf-8');
-      browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
-      const page = await browser.newPage();
+      const browser = await getBrowser();
+      page = await browser.newPage();
       await page.setViewport({ width: 1080, height: 1080 });
 
       const count = files.length;
@@ -105,7 +146,7 @@ module.exports = (upload) => {
               <div class="accent center"></div>
               ${address ? `<div class="caption">${escapeHtml(address)}</div>` : ''}
               ${captions[i] ? `<div class="caption">${escapeHtml(captions[i])}</div>` : ''}
-              <div class="cta-btn">지금 방문해보세요</div>
+              <div class="cta-btn">${escapeHtml(ctaText || '지금 방문해보세요')}</div>
             </div>`;
         } else {
           overlay = 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.05) 50%)';
@@ -136,7 +177,7 @@ module.exports = (upload) => {
       console.error('card news generation error:', err.message);
       res.status(500).json({ error: '카드뉴스 생성 중 오류가 발생했습니다.', detail: err.message });
     } finally {
-      if (browser) await browser.close();
+      if (page) await page.close();
       if (files) {
         for (const f of files) if (!f.isSample) fs.rm(f.path, { force: true }, () => {});
       }

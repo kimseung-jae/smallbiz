@@ -34,13 +34,10 @@ function wrapLines(text, maxChars) {
 }
 
 // 폰트별 고정폭이 아니라서 대략치 — 한글/전각 문자는 넓게, 영문/숫자는 좁게 잡아 배지·라인 폭을 추정한다.
-// 주의: ★(U+2605)는 코드포인트상 "좁은 문자" 구간에 들어가지만 실제로는 한글만큼 넓게 렌더링돼서
-// 별도로 넓은 문자 취급하지 않으면 뒤따르는 요소(구분선/주소)와 겹쳐 보인다.
 function approxTextWidth(str, fontSize) {
   let width = 0;
   for (const ch of String(str)) {
     if (ch === ' ') width += fontSize * 0.28;
-    else if (ch === '★' || ch === '☆') width += fontSize * 1.05;
     else if (ch.codePointAt(0) > 0x2e7f) width += fontSize * 0.98;
     else width += fontSize * 0.58;
   }
@@ -53,22 +50,9 @@ function textTspans(lines, x, lineHeight) {
     .join('');
 }
 
-function buildOverlaySvg({ storeName, address, headlineLines, headlineSize, subtextLines }) {
-  const subtextSize = 30;
-  const subtextLineHeight = subtextSize * 1.4;
-  const headlineLineHeight = headlineSize * 1.18;
-  const dividerGap = 26 + 20; // margin-top + margin-bottom around the 1px divider
-
-  const headlineHeight = headlineLines.length * headlineLineHeight;
-  const subtextHeight = subtextLines.length ? subtextLines.length * subtextLineHeight : 0;
-  const totalHeight = headlineHeight + dividerGap + subtextHeight;
-
-  const textBlockBottom = HEIGHT - 74;
-  const headlineTop = textBlockBottom - totalHeight;
-  const headlineBaseline = headlineTop + headlineSize * 0.88;
-  const dividerY = headlineTop + headlineHeight + 26;
-  const subtextBaseline = dividerY + 20 + subtextSize * 0.88;
-
+// 배지(가게명)/미터(주소)는 세 레이아웃 모두 동일하게 좌상단에 놓는다 — 템플릿마다 달라지는 건
+// 헤드라인/부제 텍스트 블록의 위치와 배경 처리뿐이다.
+function buildBadgeAndMeta({ storeName, address }) {
   let badgeSvg = '';
   let metaSvg = '';
   let metaBottom = 54;
@@ -90,26 +74,25 @@ function buildOverlaySvg({ storeName, address, headlineLines, headlineSize, subt
     metaBottom = badgeY + badgeHeight + 16;
   }
 
-  if (storeName || address) {
+  // 실제 평점 데이터가 없어서 별점(★★★★★)은 사실과 다른 표시였다 — 빼고 주소만 배지로 남긴다.
+  if (address) {
     const metaHeight = 40;
-    const starWidth = approxTextWidth('★★★★★', 20) * 1.1;
-    const addressWidth = address ? approxTextWidth(address, 18) : 0;
-    const metaWidth = 16 + starWidth + (address ? 12 + 14 + addressWidth : 0) + 16;
+    const addressWidth = approxTextWidth(address, 18);
+    const metaWidth = 16 + addressWidth + 16;
     const metaY = metaBottom;
-    const textBaseline = metaY + metaHeight / 2 + 20 * 0.35;
+    const textBaseline = metaY + metaHeight / 2 + 18 * 0.35;
 
     metaSvg = `
       <rect x="54" y="${metaY}" width="${metaWidth}" height="${metaHeight}" rx="${metaHeight / 2}" fill="rgba(0,0,0,0.4)" />
-      <text x="${54 + 16}" y="${textBaseline}" font-size="20" letter-spacing="2" fill="#ffd23f">★★★★★</text>
-      ${address ? `
-        <line x1="${54 + 16 + starWidth + 12}" y1="${metaY + 8}" x2="${54 + 16 + starWidth + 12}" y2="${metaY + metaHeight - 8}" stroke="rgba(255,255,255,0.35)" stroke-width="1" />
-        <text x="${54 + 16 + starWidth + 12 + 14}" y="${textBaseline}" font-size="18" font-weight="600" fill="rgba(255,255,255,0.92)">${escapeXml(address)}</text>
-      ` : ''}
+      <text x="${54 + 16}" y="${textBaseline}" font-size="18" font-weight="600" fill="rgba(255,255,255,0.92)">${escapeXml(address)}</text>
     `;
   }
 
+  return { badgeSvg, metaSvg };
+}
+
+function svgDefs() {
   return `
-<svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
       text { font-family: 'Noto Sans KR', sans-serif; }
@@ -119,6 +102,12 @@ function buildOverlaySvg({ storeName, address, headlineLines, headlineSize, subt
       <stop offset="26%" stop-color="#000" stop-opacity="0.62" />
       <stop offset="50%" stop-color="#000" stop-opacity="0.02" />
       <stop offset="100%" stop-color="#000" stop-opacity="0.38" />
+    </linearGradient>
+    <linearGradient id="overlayGradientCenter" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0.5" />
+      <stop offset="40%" stop-color="#000" stop-opacity="0.35" />
+      <stop offset="60%" stop-color="#000" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#000" stop-opacity="0.5" />
     </linearGradient>
     <radialGradient id="vignette" cx="50%" cy="50%" r="75%">
       <stop offset="0%" stop-color="#000" stop-opacity="0" />
@@ -140,13 +129,41 @@ function buildOverlaySvg({ storeName, address, headlineLines, headlineSize, subt
     <filter id="textShadow" x="-50%" y="-50%" width="200%" height="200%">
       <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000" flood-opacity="0.55" />
     </filter>
-  </defs>
+  </defs>`;
+}
+
+function svgFrame() {
+  return `
+  <rect x="22" y="22" width="${WIDTH - 44}" height="${HEIGHT - 44}" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="2" />
+  <rect x="28" y="28" width="${WIDTH - 56}" height="${HEIGHT - 56}" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1" />`;
+}
+
+// 템플릿 1: 하단정렬 (기존 레이아웃) — 헤드라인/부제가 사진 하단에 왼쪽 정렬로 깔린다.
+function buildBottomLayout({ storeName, address, headlineLines, headlineSize, subtextLines }) {
+  const subtextSize = 30;
+  const subtextLineHeight = subtextSize * 1.4;
+  const headlineLineHeight = headlineSize * 1.18;
+  const dividerGap = 26 + 20; // margin-top + margin-bottom around the 1px divider
+
+  const headlineHeight = headlineLines.length * headlineLineHeight;
+  const subtextHeight = subtextLines.length ? subtextLines.length * subtextLineHeight : 0;
+  const totalHeight = headlineHeight + dividerGap + subtextHeight;
+
+  const textBlockBottom = HEIGHT - 74;
+  const headlineTop = textBlockBottom - totalHeight;
+  const headlineBaseline = headlineTop + headlineSize * 0.88;
+  const dividerY = headlineTop + headlineHeight + 26;
+  const subtextBaseline = dividerY + 20 + subtextSize * 0.88;
+
+  const { badgeSvg, metaSvg } = buildBadgeAndMeta({ storeName, address });
+
+  return `
+<svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+  ${svgDefs()}
 
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#overlayGradient)" />
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#vignette)" />
-
-  <rect x="22" y="22" width="${WIDTH - 44}" height="${HEIGHT - 44}" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="2" />
-  <rect x="28" y="28" width="${WIDTH - 56}" height="${HEIGHT - 56}" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
+  ${svgFrame()}
 
   ${badgeSvg}
   ${metaSvg}
@@ -162,11 +179,114 @@ function buildOverlaySvg({ storeName, address, headlineLines, headlineSize, subt
   `;
 }
 
+// 템플릿 2: 중앙정렬 — 헤드라인/부제가 사진 정중앙에 가운데 정렬로 놓인다.
+function buildCenterLayout({ storeName, address, headlineLines, headlineSize, subtextLines }) {
+  const subtextSize = 30;
+  const subtextLineHeight = subtextSize * 1.4;
+  const headlineLineHeight = headlineSize * 1.18;
+  const dividerGap = 26 + 20;
+
+  const headlineHeight = headlineLines.length * headlineLineHeight;
+  const subtextHeight = subtextLines.length ? subtextLines.length * subtextLineHeight : 0;
+  const totalHeight = headlineHeight + dividerGap + subtextHeight;
+
+  const centerX = WIDTH / 2;
+  const headlineTop = (HEIGHT - totalHeight) / 2;
+  const headlineBaseline = headlineTop + headlineSize * 0.88;
+  const dividerY = headlineTop + headlineHeight + 26;
+  const subtextBaseline = dividerY + 20 + subtextSize * 0.88;
+  const dividerWidth = 140;
+
+  const { badgeSvg, metaSvg } = buildBadgeAndMeta({ storeName, address });
+
+  return `
+<svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+  ${svgDefs()}
+
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#overlayGradientCenter)" />
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#vignette)" />
+  ${svgFrame()}
+
+  ${badgeSvg}
+  ${metaSvg}
+
+  <text x="${centerX}" y="${headlineBaseline}" font-size="${headlineSize}" font-weight="800" letter-spacing="-1" fill="#fff" text-anchor="middle" filter="url(#textShadow)">${textTspans(headlineLines, centerX, headlineLineHeight)}</text>
+
+  <line x1="${centerX - dividerWidth / 2}" y1="${dividerY}" x2="${centerX + dividerWidth / 2}" y2="${dividerY}" stroke="url(#dividerGradient)" stroke-width="1" />
+
+  ${subtextLines.length ? `<text x="${centerX}" y="${subtextBaseline}" font-size="${subtextSize}" font-weight="500" fill="rgba(255,255,255,0.88)" text-anchor="middle" filter="url(#textShadow)">${textTspans(subtextLines, centerX, subtextLineHeight)}</text>` : ''}
+
+  <rect x="0" y="${HEIGHT - 10}" width="${WIDTH}" height="10" fill="url(#barGradient)" />
+</svg>
+  `;
+}
+
+// 템플릿 3: 상단 컬러띠 — 화면 위쪽에 불투명한 컬러 띠를 깔고 그 안에 헤드라인/부제를 넣어,
+// 사진 아래쪽은 가리지 않고 그대로 보여준다.
+function buildTopBandLayout({ storeName, address, headlineLines, headlineSize, subtextLines }) {
+  const subtextSize = 28;
+  const subtextLineHeight = subtextSize * 1.4;
+  const headlineLineHeight = headlineSize * 1.18;
+  const dividerGap = 22 + 18;
+  const bandPaddingTop = 54;
+  const bandPaddingBottom = 40;
+
+  const headlineHeight = headlineLines.length * headlineLineHeight;
+  const subtextHeight = subtextLines.length ? subtextLines.length * subtextLineHeight : 0;
+  const textHeight = headlineHeight + dividerGap + subtextHeight;
+
+  const badgeReserve = storeName ? 64 + 16 : 0;
+  const bandHeight = bandPaddingTop + badgeReserve + textHeight + bandPaddingBottom;
+
+  const headlineTop = bandPaddingTop + badgeReserve;
+  const headlineBaseline = headlineTop + headlineSize * 0.88;
+  const dividerY = headlineTop + headlineHeight + 22;
+  const subtextBaseline = dividerY + 18 + subtextSize * 0.88;
+
+  const { badgeSvg } = buildBadgeAndMeta({ storeName, address: '' });
+  // 주소는 띠 밖(사진 위, 띠 바로 아래)에 별도로 작게 표시한다 — 띠 안에 다 넣으면 너무 빽빽해진다.
+  const addressBelowBand = address
+    ? `<text x="56" y="${bandHeight + 40}" font-size="18" font-weight="600" fill="rgba(255,255,255,0.92)" filter="url(#textShadow)">${escapeXml(address)}</text>`
+    : '';
+
+  return `
+<svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+  ${svgDefs()}
+
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#vignette)" />
+  ${svgFrame()}
+
+  <rect x="0" y="0" width="${WIDTH}" height="${bandHeight}" fill="#14161a" />
+  <rect x="0" y="${bandHeight - 6}" width="${WIDTH}" height="6" fill="url(#barGradient)" />
+
+  ${badgeSvg}
+  ${addressBelowBand}
+
+  <text x="56" y="${headlineBaseline}" font-size="${headlineSize}" font-weight="800" letter-spacing="-1" fill="#fff">${textTspans(headlineLines, 56, headlineLineHeight)}</text>
+
+  <line x1="56" y1="${dividerY}" x2="${WIDTH - 56}" y2="${dividerY}" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
+
+  ${subtextLines.length ? `<text x="56" y="${subtextBaseline}" font-size="${subtextSize}" font-weight="500" fill="rgba(255,255,255,0.75)">${textTspans(subtextLines, 56, subtextLineHeight)}</text>` : ''}
+</svg>
+  `;
+}
+
+const TEMPLATES = {
+  bottom: buildBottomLayout,
+  center: buildCenterLayout,
+  'top-band': buildTopBandLayout,
+};
+
+function buildOverlaySvg({ templateId, ...rest }) {
+  const builder = TEMPLATES[templateId] || TEMPLATES.bottom;
+  return builder(rest);
+}
+
 module.exports = (upload) => {
   const router = express.Router();
 
   router.post('/', upload.single('photo'), async (req, res) => {
-    const { storeName, headline, subtext, address, useSample } = req.body;
+    const { storeName, headline, subtext, address, templateId, focusY: focusYRaw, useSample } = req.body;
     const file = useSample === 'true' ? getSampleFiles(1)[0] : req.file;
 
     if (!file) return res.status(400).json({ error: '사진이 필요합니다.' });
@@ -197,6 +317,7 @@ module.exports = (upload) => {
       const subtextLines = subtext && subtext.trim() ? wrapLines(subtext, 22) : [];
 
       const overlaySvg = buildOverlaySvg({
+        templateId: templateId || '',
         storeName: storeName || '',
         address: address || '',
         headlineLines,
@@ -204,8 +325,30 @@ module.exports = (upload) => {
         subtextLines,
       });
 
-      const photoBuffer = await sharp(imagePath)
-        .resize(WIDTH, HEIGHT, { fit: 'cover', position: 'attention' })
+      // focusY(0~1)가 오면 사용자가 고른 세로 위치로 직접 크롭하고, 없으면 기존처럼
+      // sharp의 attention(자동 피사체 감지) 크롭을 그대로 쓴다 — 간판/음식이 잘릴 때만 수동으로 바꾸는 용도.
+      const focusY = focusYRaw !== undefined && focusYRaw !== ''
+        ? Math.min(1, Math.max(0, Number(focusYRaw)))
+        : null;
+
+      let photoPipeline;
+      if (focusY === null || Number.isNaN(focusY)) {
+        photoPipeline = sharp(imagePath).resize(WIDTH, HEIGHT, { fit: 'cover', position: 'attention' });
+      } else {
+        const { width: srcWidth, height: srcHeight } = await sharp(imagePath).metadata();
+        const scale = Math.max(WIDTH / srcWidth, HEIGHT / srcHeight);
+        const scaledWidth = Math.round(srcWidth * scale);
+        const scaledHeight = Math.round(srcHeight * scale);
+        const left = Math.round((scaledWidth - WIDTH) / 2);
+        const maxTop = Math.max(0, scaledHeight - HEIGHT);
+        const top = Math.round(maxTop * focusY);
+
+        photoPipeline = sharp(imagePath)
+          .resize(scaledWidth, scaledHeight)
+          .extract({ left, top, width: WIDTH, height: HEIGHT });
+      }
+
+      const photoBuffer = await photoPipeline
         .modulate({ brightness: 0.98, saturation: 1.2 })
         .linear(1.1, -12.75) // CSS contrast(1.1)에 대응하는 근사치
         .toBuffer();

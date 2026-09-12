@@ -4,6 +4,7 @@ const express = require('express');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
+const { closeBrowser } = require('./lib/browser');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,6 +13,34 @@ const uploadDir = path.join(__dirname, 'uploads');
 const outputDir = path.join(__dirname, 'output');
 fs.mkdirSync(uploadDir, { recursive: true });
 fs.mkdirSync(outputDir, { recursive: true });
+
+// output/ 폴더가 결과물을 계속 쌓기만 하고 지우지 않아 디스크가 차는 문제 —
+// 서버 시작 시 한 번, 그 뒤 1시간마다 만들어진 지 2시간 지난 파일을 지운다.
+const OUTPUT_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+function cleanupOldOutputFiles() {
+  let files;
+  try {
+    files = fs.readdirSync(outputDir);
+  } catch (err) {
+    console.error('output 폴더 정리 중 오류:', err.message);
+    return;
+  }
+
+  const now = Date.now();
+  for (const name of files) {
+    const filePath = path.join(outputDir, name);
+    try {
+      const stats = fs.statSync(filePath);
+      if (now - stats.mtimeMs > OUTPUT_MAX_AGE_MS) {
+        fs.rmSync(filePath, { force: true });
+      }
+    } catch (err) {
+      console.error(`output 파일 정리 중 오류(${name}):`, err.message);
+    }
+  }
+}
+cleanupOldOutputFiles();
+setInterval(cleanupOldOutputFiles, 60 * 60 * 1000);
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
@@ -63,4 +92,14 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`한을 플랫폼 서버 실행 중: http://localhost:${PORT}`);
+});
+
+// 서버가 꺼질 때(배포 플랫폼의 재시작/스케일다운 포함) 재사용 중이던 puppeteer 브라우저도 같이 닫는다.
+process.on('SIGTERM', async () => {
+  await closeBrowser();
+  process.exit(0);
+});
+process.on('SIGINT', async () => {
+  await closeBrowser();
+  process.exit(0);
 });

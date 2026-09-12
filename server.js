@@ -77,6 +77,7 @@ app.use('/api/image-search', require('./routes/imageSearch'));
 app.use('/api/pexels-search', require('./routes/pexelsSearch'));
 app.use('/api/daum-image-search', require('./routes/daumImageSearch'));
 app.use('/api/google-image-search', require('./routes/googleImageSearch'));
+app.use('/api/real-images', require('./routes/realImages'));
 app.use('/api/image-proxy', require('./routes/imageProxy'));
 app.use('/api/blog-post-draft', require('./routes/blogPostDraft'));
 app.use('/api/reels', require('./routes/reels')(upload));

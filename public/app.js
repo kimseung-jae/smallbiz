@@ -366,7 +366,7 @@ async function showNearbyRecommendations(loc) {
         placeMarker(p.lat, p.lng);
         userLocation = { lat: p.lat, lng: p.lng };
         fetchBlogSuggestions(p.name);
-        searchRealImages(p.name, p.address);
+        searchRealImages(p.name, p.address, p.category);
       });
     });
   } catch {
@@ -421,7 +421,7 @@ function renderResultList(candidates) {
       // 매장을 고르면 블로그 후기 기반 소개글도 자동으로 같이 가져옴
       if (c.name) {
         fetchBlogSuggestions(c.name);
-        searchRealImages(c.name, c.address);
+        searchRealImages(c.name, c.address, c.category);
       }
 
       const point = c.lat != null ? c : await geocodeAddress(c.address);
@@ -628,29 +628,25 @@ function renderImageResults(container, images, creditText) {
   });
 }
 
-// 실제 웹 이미지 — 다음 + 네이버 + 구글 이미지 검색을 매장명 기준으로 동시 호출해서
-// 탭 전환 없이 한 그리드에 합쳐서 보여준다. 매장을 고르면(지도 검색/내 주변 추천) 자동으로 실행되고,
-// 버튼은 매장명을 나중에 바꿨을 때 다시 찾는 용도로만 남겨둔다.
-async function searchRealImages(storeName, address) {
+// 실제 웹 이미지 — 다음/네이버/구글 이미지 검색과 AI 관련도 검수를 서버에서 한 번에 처리하는
+// /api/real-images 하나만 부른다. 탭 전환 없이 한 그리드로 보여주고, 매장을 고르면(지도 검색/내 주변
+// 추천) 자동으로 실행되며, 버튼은 매장명을 나중에 바꿨을 때 다시 찾는 용도로만 남겨둔다.
+async function searchRealImages(storeName, address, category) {
   if (!storeName) return;
-  // 주소가 있으면 지역명을 붙여서 검색어를 더 구체적으로 만듦 (관련도 향상)
-  const regionHint = address ? address.split(' ').slice(0, 2).join(' ') : '';
-  const query = regionHint ? `${storeName} ${regionHint}` : storeName;
 
   realImageBtn.disabled = true;
   realImageArea.innerHTML = '<div class="blog-note">이미지 찾는 중...</div>';
 
   try {
-    const [daumRes, naverRes, googleRes] = await Promise.allSettled([
-      fetch(`/api/daum-image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
-      fetch(`/api/image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
-      fetch(`/api/google-image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
-    ]);
+    const res = await fetch('/api/real-images', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeName, address, category: category || selectedStoreCategory }),
+    });
+    const data = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(data.error || '이미지 검색 실패');
 
-    const pick = (res) => (res.status === 'fulfilled' && !res.value.needsApiKey) ? (res.value.images || []) : [];
-    const merged = [...pick(daumRes), ...pick(naverRes), ...pick(googleRes)];
-
-    renderImageResults(realImageArea, merged, `"${query}" 검색 결과 · 실제 매장 사진이 아닐 수 있어요`);
+    renderImageResults(realImageArea, data.images || [], `"${data.query}" 검색 결과 · 실제 매장 사진이 아닐 수 있어요`);
   } catch (err) {
     realImageArea.innerHTML = `<div class="blog-note">오류: ${err.message}</div>`;
   } finally {

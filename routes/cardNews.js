@@ -4,6 +4,7 @@ const fs = require('fs');
 const { getSampleFiles } = require('./sampleMedia');
 const { callAI, hasAIKey } = require('../lib/aiClient');
 const { getBrowser } = require('../lib/browser');
+const { serialize } = require('../lib/requestQueue');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'cardnews-panel.html');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
@@ -88,7 +89,7 @@ ${count > 1 ? '- 마지막 문구는 방문을 유도하는 한 줄\n' : ''}${co
     }
   });
 
-  router.post('/', upload.array('photos', 6), async (req, res) => {
+  router.post('/', upload.array('photos', 6), serialize(async (req, res) => {
     const { storeName, headline, address, ctaText, useSample } = req.body;
     const files = useSample === 'true' ? getSampleFiles(4) : req.files;
     // captions[i]는 i번째 슬라이드(사진) 전용 문구 — 사용자가 슬라이드별로 직접 입력/수정한 값
@@ -183,7 +184,7 @@ ${count > 1 ? '- 마지막 문구는 방문을 유도하는 한 줄\n' : ''}${co
       }
       for (const framePath of extractedFrames) fs.rm(framePath, { force: true }, () => {});
     }
-  });
+  }));
 
   return router;
 };

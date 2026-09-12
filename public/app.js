@@ -792,8 +792,22 @@ generateBtn.addEventListener('click', async () => {
   }
 });
 
+// "준비 중..."이 안 바뀌고 계속 떠 있으면 서버가 멈춘 것처럼 보인다 — 몇 초 지났는지 1초마다
+// 갱신해서 "지금도 진행 중"이라는 걸 보여준다. 정확한 남은 시간은 알 수 없어서 경과 시간만 보여준다.
+function startElapsedTimer(render) {
+  let seconds = 0;
+  render(seconds);
+  const id = setInterval(() => {
+    seconds += 1;
+    render(seconds);
+  }, 1000);
+  return () => clearInterval(id);
+}
+
 async function generatePoster({ storeName, headline, subtext, address }) {
-  posterArea.innerHTML = '<div class="spinner"></div><div class="blog-note">포스터 만드는 중... (첫 요청은 서버가 깨어나는 데 시간이 좀 더 걸릴 수 있어요)</div>';
+  const stopTimer = startElapsedTimer((s) => {
+    posterArea.innerHTML = `<div class="spinner"></div><div class="blog-note">포스터 만드는 중... (${s}초 경과)</div>`;
+  });
   try {
     const fd = new FormData();
     fd.append('photo', selectedFiles[0]);
@@ -813,6 +827,8 @@ async function generatePoster({ storeName, headline, subtext, address }) {
     addShareButton(posterArea, data.url, 'poster.png', 'image/png');
   } catch (err) {
     posterArea.textContent = `포스터 생성 실패: ${err.message}`;
+  } finally {
+    stopTimer();
   }
 }
 
@@ -834,6 +850,9 @@ async function fetchAutoCaptions(endpoint, body) {
 }
 
 async function generateReels({ storeName, introText, caption, mood }) {
+  const stopTimer = startElapsedTimer((s) => {
+    reelsArea.textContent = `릴스 만드는 중... (${s}초 경과, 사진이 많으면 1~2분까지 걸릴 수 있어요)`;
+  });
   try {
     const fd = new FormData();
     selectedFiles.forEach((f) => fd.append('photos', f));
@@ -861,6 +880,8 @@ async function generateReels({ storeName, introText, caption, mood }) {
     addShareButton(reelsArea, data.url, 'reels.mp4', 'video/mp4');
   } catch (err) {
     reelsArea.textContent = `릴스 생성 실패: ${err.message}`;
+  } finally {
+    stopTimer();
   }
 }
 
@@ -954,8 +975,10 @@ async function generateComic(endpoint, label) {
     comicArea.innerHTML = `<div class="blog-note">만화는 사진이 최소 2장 필요해요.</div>`;
     return;
   }
-  comicArea.innerHTML = `<div class="blog-note">${label} 만드는 중...</div>`;
   lockHeavyButtons();
+  const stopTimer = startElapsedTimer((s) => {
+    comicArea.innerHTML = `<div class="blog-note">${label} 만드는 중... (${s}초 경과)</div>`;
+  });
 
   try {
     const storeName = storeNameInput.value.trim();
@@ -989,6 +1012,7 @@ async function generateComic(endpoint, label) {
   } catch (err) {
     comicArea.innerHTML = `<div class="blog-note">${label} 생성 실패: ${err.message}</div>`;
   } finally {
+    stopTimer();
     unlockHeavyButtons();
   }
 }
@@ -1000,8 +1024,10 @@ illustComicBtn.addEventListener('click', async () => {
     illustComicArea.innerHTML = '<div class="blog-note">AI 일러스트 만화는 사진이 최소 2장 필요해요.</div>';
     return;
   }
-  illustComicArea.innerHTML = '<div class="blog-note">AI 일러스트 만화 만드는 중... (그림체 변환이라 시간이 좀 걸려요)</div>';
   lockHeavyButtons();
+  const stopTimer = startElapsedTimer((s) => {
+    illustComicArea.innerHTML = `<div class="blog-note">AI 일러스트 만화 만드는 중... (${s}초 경과, 그림체 변환이라 시간이 좀 걸려요)</div>`;
+  });
 
   try {
     const storeName = storeNameInput.value.trim();
@@ -1043,6 +1069,7 @@ illustComicBtn.addEventListener('click', async () => {
   } catch (err) {
     illustComicArea.innerHTML = `<div class="blog-note">AI 일러스트 만화 생성 실패: ${err.message}</div>`;
   } finally {
+    stopTimer();
     unlockHeavyButtons();
   }
 });
@@ -1060,7 +1087,9 @@ cardNewsBtn.addEventListener('click', async () => {
   }
 
   lockHeavyButtons();
-  cardNewsArea.innerHTML = '<div class="blog-note">카드뉴스 만드는 중...</div>';
+  const stopTimer = startElapsedTimer((s) => {
+    cardNewsArea.innerHTML = `<div class="blog-note">카드뉴스 만드는 중... (${s}초 경과)</div>`;
+  });
 
   try {
     // 슬라이드별 문구는 AI가 자동으로 만들어준다 — 실패하거나 키가 없으면 한 줄 소개를
@@ -1097,6 +1126,7 @@ cardNewsBtn.addEventListener('click', async () => {
   } catch (err) {
     cardNewsArea.innerHTML = `<div class="blog-note">카드뉴스 생성 실패: ${err.message}</div>`;
   } finally {
+    stopTimer();
     unlockHeavyButtons();
   }
 });

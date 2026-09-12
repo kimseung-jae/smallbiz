@@ -410,6 +410,7 @@ html, body {
   margin-top: 6px;
 }
 .secondary-btn:active { opacity: 0.85; }
+.secondary-btn:disabled { background: var(--gray-200); color: var(--gray-400); cursor: not-allowed; }
 
 .blog-candidates { margin-top: 10px; }
 .blog-candidate {

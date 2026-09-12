@@ -734,7 +734,7 @@ function showError(msg) {
   errorBox.hidden = false;
   errorBox.textContent = msg;
   statusBox.hidden = true;
-  generateBtn.disabled = false;
+  unlockHeavyButtons();
 }
 
 function setStatus(msg) {
@@ -753,7 +753,7 @@ generateBtn.addEventListener('click', async () => {
   if (!storeName) return showError('매장명을 입력해주세요.');
   if (!introText) return showError('한 줄 소개를 입력해주세요.');
 
-  generateBtn.disabled = true;
+  lockHeavyButtons();
   posterArea.textContent = '준비 중...';
   reelsArea.textContent = '준비 중...';
   setStatus('AI가 홍보 문구를 쓰는 중...');
@@ -788,7 +788,7 @@ generateBtn.addEventListener('click', async () => {
   } catch (err) {
     showError(err.message || '알 수 없는 오류가 발생했습니다.');
   } finally {
-    generateBtn.disabled = false;
+    unlockHeavyButtons();
   }
 });
 
@@ -937,13 +937,25 @@ const webtoonBtn = document.getElementById('webtoonBtn');
 const comicArea = document.getElementById('comicArea');
 const cardNewsBtn = document.getElementById('cardNewsBtn');
 const cardNewsArea = document.getElementById('cardNewsArea');
+
+// 릴스/카드뉴스/포토툰/AI 일러스트 만화는 전부 무료 서버가 감당하기 버거운 무거운 작업이다.
+// 한 사람이 여러 버튼을 연달아 눌러서 이 요청들이 동시에 서버에 들어가면 서버가 죽는 걸
+// 실제로 확인했다 — 하나라도 진행 중이면 나머지 버튼도 같이 잠가서 애초에 겹치지 않게 한다.
+const HEAVY_BUTTONS = [generateBtn, cardNewsBtn, webtoonBtn, illustComicBtn];
+function lockHeavyButtons() {
+  HEAVY_BUTTONS.forEach((b) => { b.disabled = true; });
+}
+function unlockHeavyButtons() {
+  HEAVY_BUTTONS.forEach((b) => { b.disabled = false; });
+}
+
 async function generateComic(endpoint, label) {
   if (selectedFiles.length < 2) {
     comicArea.innerHTML = `<div class="blog-note">만화는 사진이 최소 2장 필요해요.</div>`;
     return;
   }
   comicArea.innerHTML = `<div class="blog-note">${label} 만드는 중...</div>`;
-  webtoonBtn.disabled = true;
+  lockHeavyButtons();
 
   try {
     const storeName = storeNameInput.value.trim();
@@ -977,7 +989,7 @@ async function generateComic(endpoint, label) {
   } catch (err) {
     comicArea.innerHTML = `<div class="blog-note">${label} 생성 실패: ${err.message}</div>`;
   } finally {
-    webtoonBtn.disabled = false;
+    unlockHeavyButtons();
   }
 }
 
@@ -989,7 +1001,7 @@ illustComicBtn.addEventListener('click', async () => {
     return;
   }
   illustComicArea.innerHTML = '<div class="blog-note">AI 일러스트 만화 만드는 중... (그림체 변환이라 시간이 좀 걸려요)</div>';
-  illustComicBtn.disabled = true;
+  lockHeavyButtons();
 
   try {
     const storeName = storeNameInput.value.trim();
@@ -1031,7 +1043,7 @@ illustComicBtn.addEventListener('click', async () => {
   } catch (err) {
     illustComicArea.innerHTML = `<div class="blog-note">AI 일러스트 만화 생성 실패: ${err.message}</div>`;
   } finally {
-    illustComicBtn.disabled = false;
+    unlockHeavyButtons();
   }
 });
 
@@ -1047,7 +1059,7 @@ cardNewsBtn.addEventListener('click', async () => {
     return;
   }
 
-  cardNewsBtn.disabled = true;
+  lockHeavyButtons();
   cardNewsArea.innerHTML = '<div class="blog-note">카드뉴스 만드는 중...</div>';
 
   try {
@@ -1085,7 +1097,7 @@ cardNewsBtn.addEventListener('click', async () => {
   } catch (err) {
     cardNewsArea.innerHTML = `<div class="blog-note">카드뉴스 생성 실패: ${err.message}</div>`;
   } finally {
-    cardNewsBtn.disabled = false;
+    unlockHeavyButtons();
   }
 });
 

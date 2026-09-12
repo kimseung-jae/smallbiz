@@ -276,24 +276,6 @@ html, body {
 }
 .category-chip-smart.active { background: linear-gradient(135deg, #ffd23f, #ff8a3d); border-color: transparent; color: #1a1408; }
 
-.tab-row {
-  display: flex;
-  gap: 4px;
-  margin: 10px 0 4px;
-  border-bottom: 1.5px solid var(--gray-200);
-}
-.tab-btn {
-  border: none;
-  background: none;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--gray-400);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-}
-.tab-btn.active { color: var(--blue-dark); border-bottom-color: var(--blue); }
 .image-credit {
   font-size: 10.5px;
   color: var(--gray-400);

@@ -35,6 +35,13 @@ async function parseJsonSafe(res) {
   }
 }
 
+// 블로그 후기/카테고리 기반으로 "일단 써볼 만한" 한 줄 소개를 만든다 — 사장님이 직접 타이핑하지
+// 않아도 되도록, 매장을 고르면 바로 이 값이 소개글 칸에 채워진다(직접 수정은 언제든 가능).
+function buildFallbackIntro(category) {
+  const type = String(category || '').split('>').pop().trim();
+  return type ? `${type} 전문, 정성으로 준비했습니다` : '정성으로 준비했습니다. 편하게 방문해주세요';
+}
+
 async function fetchBlogSuggestions(storeName) {
   if (!storeName) {
     blogCandidates.innerHTML = '<div class="blog-note">매장명을 먼저 입력해주세요.</div>';
@@ -54,6 +61,7 @@ async function fetchBlogSuggestions(storeName) {
 
     if (data.needsApiKey) {
       blogCandidates.innerHTML = `<div class="blog-note">${data.message}</div>`;
+      if (!introTextInput.value.trim()) introTextInput.value = buildFallbackIntro(selectedStoreCategory);
       return;
     }
     if (!res.ok) throw new Error(data.error || '블로그 후기 가져오기 실패');
@@ -61,6 +69,7 @@ async function fetchBlogSuggestions(storeName) {
     const candidates = data.candidates || [];
     if (!candidates.length) {
       blogCandidates.innerHTML = `<div class="blog-note">${data.message || '관련 블로그 포스트를 찾지 못했어요. 직접 입력해주세요.'}</div>`;
+      if (!introTextInput.value.trim()) introTextInput.value = buildFallbackIntro(selectedStoreCategory);
       return;
     }
 
@@ -70,7 +79,10 @@ async function fetchBlogSuggestions(storeName) {
 
     blogCandidates.innerHTML = combinedHtml + candidates
       .map((c, i) => `<button type="button" class="blog-candidate" data-idx="${i}">${i + 1}. ${c}</button>`)
-      .join('') + '<div class="blog-note">마음에 드는 걸 탭하면 아래 소개글에 채워져요. 직접 수정도 가능해요.</div>';
+      .join('') + '<div class="blog-note">일단 추천으로 채워뒀어요. 마음에 드는 걸 탭하면 바꿀 수 있고, 직접 수정도 가능해요.</div>';
+
+    // 후보 중 가장 나은 것(종합본 우선)을 바로 채워서, 사장님이 손댈 필요 없이 "일단 써볼 수 있는" 상태로 만든다.
+    if (!introTextInput.value.trim()) introTextInput.value = data.combined || candidates[0];
 
     if (data.combined) {
       blogCandidates.querySelector('.blog-candidate-combined').addEventListener('click', () => {
@@ -354,6 +366,7 @@ async function showNearbyRecommendations(loc) {
         placeMarker(p.lat, p.lng);
         userLocation = { lat: p.lat, lng: p.lng };
         fetchBlogSuggestions(p.name);
+        searchRealImages(p.name, p.address);
       });
     });
   } catch {
@@ -406,7 +419,10 @@ function renderResultList(candidates) {
       fillStoreInfo(c.address, c.name, c.category);
 
       // 매장을 고르면 블로그 후기 기반 소개글도 자동으로 같이 가져옴
-      if (c.name) fetchBlogSuggestions(c.name);
+      if (c.name) {
+        fetchBlogSuggestions(c.name);
+        searchRealImages(c.name, c.address);
+      }
 
       const point = c.lat != null ? c : await geocodeAddress(c.address);
       if (point) {
@@ -612,60 +628,43 @@ function renderImageResults(container, images, creditText) {
   });
 }
 
-// 실제 웹 이미지 — 네이버 + 다음 이미지 검색을 매장명 기준으로 동시 호출해서 합침
-const realImageTabs = document.getElementById('realImageTabs');
-let realImageResults = { naver: [], daum: [] };
-let activeRealImageTab = 'daum';
-const REAL_IMAGE_TAB_LABEL = { naver: '네이버', daum: '다음' };
-
-function renderActiveRealImageTab(query) {
-  const images = realImageResults[activeRealImageTab] || [];
-  const label = REAL_IMAGE_TAB_LABEL[activeRealImageTab] || activeRealImageTab;
-  renderImageResults(realImageArea, images, `${label} "${query}" 검색 결과 · 실제 매장 사진이 아닐 수 있어요`);
-}
-
-realImageTabs.querySelectorAll('.tab-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    realImageTabs.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    activeRealImageTab = btn.dataset.tab;
-    renderActiveRealImageTab(realImageBtn.dataset.lastQuery || storeNameInput.value.trim());
-  });
-});
-
-realImageBtn.addEventListener('click', async () => {
-  const storeName = storeNameInput.value.trim();
-  if (!storeName) {
-    realImageArea.innerHTML = '<div class="blog-note">매장명을 먼저 입력해주세요.</div>';
-    return;
-  }
+// 실제 웹 이미지 — 다음 + 네이버 + 구글 이미지 검색을 매장명 기준으로 동시 호출해서
+// 탭 전환 없이 한 그리드에 합쳐서 보여준다. 매장을 고르면(지도 검색/내 주변 추천) 자동으로 실행되고,
+// 버튼은 매장명을 나중에 바꿨을 때 다시 찾는 용도로만 남겨둔다.
+async function searchRealImages(storeName, address) {
+  if (!storeName) return;
   // 주소가 있으면 지역명을 붙여서 검색어를 더 구체적으로 만듦 (관련도 향상)
-  const regionHint = selectedStoreAddress ? selectedStoreAddress.split(' ').slice(0, 2).join(' ') : '';
+  const regionHint = address ? address.split(' ').slice(0, 2).join(' ') : '';
   const query = regionHint ? `${storeName} ${regionHint}` : storeName;
-  realImageBtn.dataset.lastQuery = query;
 
   realImageBtn.disabled = true;
-  realImageTabs.hidden = true;
   realImageArea.innerHTML = '<div class="blog-note">이미지 찾는 중...</div>';
 
   try {
-    const [naverRes, daumRes] = await Promise.allSettled([
-      fetch(`/api/image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
+    const [daumRes, naverRes, googleRes] = await Promise.allSettled([
       fetch(`/api/daum-image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
+      fetch(`/api/image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
+      fetch(`/api/google-image-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
     ]);
 
-    realImageResults.naver = (naverRes.status === 'fulfilled' && !naverRes.value.needsApiKey) ? (naverRes.value.images || []) : [];
-    realImageResults.daum = (daumRes.status === 'fulfilled' && !daumRes.value.needsApiKey) ? (daumRes.value.images || []) : [];
+    const pick = (res) => (res.status === 'fulfilled' && !res.value.needsApiKey) ? (res.value.images || []) : [];
+    const merged = [...pick(daumRes), ...pick(naverRes), ...pick(googleRes)];
 
-    realImageTabs.hidden = false;
-    activeRealImageTab = 'daum';
-    realImageTabs.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'daum'));
-    renderActiveRealImageTab(query);
+    renderImageResults(realImageArea, merged, `"${query}" 검색 결과 · 실제 매장 사진이 아닐 수 있어요`);
   } catch (err) {
     realImageArea.innerHTML = `<div class="blog-note">오류: ${err.message}</div>`;
   } finally {
     realImageBtn.disabled = false;
   }
+}
+
+realImageBtn.addEventListener('click', () => {
+  const storeName = storeNameInput.value.trim();
+  if (!storeName) {
+    realImageArea.innerHTML = '<div class="blog-note">매장명을 먼저 입력해주세요.</div>';
+    return;
+  }
+  searchRealImages(storeName, selectedStoreAddress);
 });
 
 // 스톡사진 — Pexels(카테고리/분위기 기준, 고품질)

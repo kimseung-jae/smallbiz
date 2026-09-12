@@ -42,12 +42,8 @@
         <div class="preview-row" id="previewRow"></div>
       </label>
       <div class="image-source-block">
-        <div class="image-source-title">🔎 실제 웹 이미지 (매장명 기준 검색)</div>
-        <button type="button" class="secondary-btn" id="realImageBtn">매장명으로 실제 이미지 찾기</button>
-        <div class="tab-row" id="realImageTabs" hidden>
-          <button type="button" class="tab-btn active" data-tab="daum">다음</button>
-          <button type="button" class="tab-btn" data-tab="naver">네이버</button>
-        </div>
+        <div class="image-source-title">🔎 실제 웹 이미지 <span class="hint">(매장을 고르면 자동으로 찾아와요)</span></div>
+        <button type="button" class="secondary-btn" id="realImageBtn">🔄 실제 이미지 다시 찾기</button>
         <div id="realImageArea" class="web-image-grid"></div>
       </div>
 
@@ -55,10 +51,17 @@
         <div class="image-source-title">🎨 스톡사진 (Pexels — 분위기/카테고리 참고용)</div>
         <div class="category-chip-row" id="categoryChipRow">
           <button type="button" class="category-chip category-chip-smart" id="smartCategoryChip">🎯 맞춤</button>
-          <button type="button" class="category-chip" data-q="cozy cafe interior">☕ 카페</button>
-          <button type="button" class="category-chip" data-q="korean bbq restaurant">🥩 고기집</button>
           <button type="button" class="category-chip" data-q="korean traditional restaurant">🍚 한식</button>
-          <button type="button" class="category-chip" data-q="dessert bakery">🍰 디저트</button>
+          <button type="button" class="category-chip" data-q="korean bbq grill meat">🥩 고기</button>
+          <button type="button" class="category-chip" data-q="korean street food tteokbokki">🍢 분식</button>
+          <button type="button" class="category-chip" data-q="korean noodles">🍜 면요리</button>
+          <button type="button" class="category-chip" data-q="fresh seafood sashimi">🐟 해물</button>
+          <button type="button" class="category-chip" data-q="japanese sushi ramen">🍣 일식</button>
+          <button type="button" class="category-chip" data-q="chinese food">🥟 중식</button>
+          <button type="button" class="category-chip" data-q="fried chicken">🍗 치킨</button>
+          <button type="button" class="category-chip" data-q="pizza restaurant">🍕 피자</button>
+          <button type="button" class="category-chip" data-q="cozy cafe coffee">☕ 카페</button>
+          <button type="button" class="category-chip" data-q="bakery dessert">🍰 디저트</button>
           <button type="button" class="category-chip" data-q="bar pub night">🍺 술집</button>
         </div>
         <div id="webImageArea" class="web-image-grid"></div>

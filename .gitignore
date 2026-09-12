@@ -5,3 +5,5 @@ output/
 *.log
 .DS_Store
 .firebase/
+remotion/public
+sample-photos/

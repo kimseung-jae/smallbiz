@@ -6,7 +6,7 @@ const ffmpegPath = require('ffmpeg-static');
 const { getSampleFiles } = require('./sampleMedia');
 const { callAI, hasAIKey } = require('../lib/aiClient');
 const { getBrowser } = require('../lib/browser');
-const { serialize } = require('../lib/requestQueue');
+const { serializeUpload } = require('../lib/requestQueue');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'webtoon-panel.html');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
@@ -89,7 +89,7 @@ module.exports = (upload) => {
     }
   });
 
-  router.post('/', upload.array('photos', 6), serialize(async (req, res) => {
+  router.post('/', serializeUpload(upload.array('photos', 6), async (req, res) => {
     const { storeName, useSample } = req.body;
     const files = useSample === 'true' ? getSampleFiles(4) : req.files;
     let captions = [];

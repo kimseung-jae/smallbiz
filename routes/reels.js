@@ -7,7 +7,7 @@ const ffmpegPath = require('ffmpeg-static');
 const sharp = require('sharp');
 const { getSampleFiles } = require('./sampleMedia');
 const { restyleImageAsAnimation, callAI, hasAIKey } = require('../lib/aiClient');
-const { serialize } = require('../lib/requestQueue');
+const { serializeUpload } = require('../lib/requestQueue');
 
 // Render 무료 플랜(RAM 512MB)에서 1080x1920 인코딩이 메모리를 넘겨 서버 전체가 죽는 문제가 있어
 // 해상도를 낮추고 인코딩 부하를 줄임 (720x1280도 SNS 릴스용으로 충분한 화질)
@@ -168,7 +168,7 @@ module.exports = (upload) => {
     }
   });
 
-  router.post('/', upload.array('photos', 6), serialize(async (req, res) => {
+  router.post('/', serializeUpload(upload.array('photos', 6), async (req, res) => {
     const { caption, mood, useSample } = req.body;
     const files = useSample === 'true' ? getSampleFiles(4) : req.files;
 

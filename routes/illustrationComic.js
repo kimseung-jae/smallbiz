@@ -4,7 +4,7 @@ const fs = require('fs');
 const { getSampleFiles } = require('./sampleMedia');
 const { getBrowser } = require('../lib/browser');
 const { hasImageAIKey, restyleImageWithPrompt } = require('../lib/aiClient');
-const { serialize } = require('../lib/requestQueue');
+const { serializeUpload } = require('../lib/requestQueue');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'illustration-panel.html');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
@@ -52,7 +52,7 @@ async function generateIllustration(filePath, stylePrompt) {
 module.exports = (upload) => {
   const router = express.Router();
 
-  router.post('/', upload.array('photos', 6), serialize(async (req, res) => {
+  router.post('/', serializeUpload(upload.array('photos', 6), async (req, res) => {
     if (!hasImageAIKey()) {
       return res.json({
         needsApiKey: true,

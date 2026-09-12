@@ -6,7 +6,7 @@ const { execFile } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
 const sharp = require('sharp');
 const { getSampleFiles } = require('./sampleMedia');
-const { hasImageAIKey, restyleImageAsAnimation, callAI, hasAIKey } = require('../lib/aiClient');
+const { restyleImageAsAnimation, callAI, hasAIKey } = require('../lib/aiClient');
 
 // Render 무료 플랜(RAM 512MB)에서 1080x1920 인코딩이 메모리를 넘겨 서버 전체가 죽는 문제가 있어
 // 해상도를 낮추고 인코딩 부하를 줄임 (720x1280도 SNS 릴스용으로 충분한 화질)
@@ -192,8 +192,11 @@ module.exports = (upload) => {
     const clipPaths = [];
 
     try {
-      // 사진은 AI로 따뜻한 애니메이션/일러스트 느낌으로 다시 그려서 씀 — 키 없거나 실패하면 원본 사진 그대로 사용
-      const shouldAnimate = hasImageAIKey() && useSample !== 'true';
+      // 사진은 AI로 따뜻한 애니메이션/일러스트 느낌으로 다시 그려서 쓸 수도 있지만(restyleImageAsAnimation),
+      // 릴스는 이미 사진마다 영상 인코딩(zoompan/xfade)까지 같이 하기 때문에 AI 변환(사진당 수십 초)까지
+      // 더해지면 Render 무료 서버 사양을 넘어서 502로 죽는 걸 실제로 확인했다 — 릴스는 신뢰성이 더
+      // 중요하므로 꺼둔다. AI 그림체 변환은 영상 인코딩이 없는 "AI 일러스트 만화" 쪽에서만 쓴다.
+      const shouldAnimate = false;
       const sourcePaths = await Promise.all(files.map(async (file, i) => {
         if (!shouldAnimate || !file.mimetype.startsWith('image/')) return file.path;
         const restyled = await restyleImageAsAnimation(fs.readFileSync(file.path), file.mimetype);

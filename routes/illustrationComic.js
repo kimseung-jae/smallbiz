@@ -29,7 +29,7 @@ const STYLE_PROMPTS = {
 스타일 특징: 깔끔한 셀 애니메이션 라인, 부드러운 파스텔 색감의 셀 쉐이딩, 큼직하고 또렷한 눈매 표현, 화사하고 사랑스러운 분위기.
 중요: 이미지 안에 글자, 텍스트, 말풍선을 절대 넣지 마세요. 오직 일러스트 그림만 그려주세요. 원본 사진의 구도와 소재(사람/사물/공간)는 유지하되, 그림체만 위 스타일로 바꿔주세요.`,
 };
-const DEFAULT_STYLE = 'mizumaru';
+const DEFAULT_STYLE = 'pastelAnime';
 
 function toBase64(filePath) {
   const ext = path.extname(filePath).slice(1) || 'jpeg';

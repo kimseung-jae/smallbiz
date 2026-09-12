@@ -57,21 +57,44 @@ function escapeXml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// 폰트별 고정폭이 아니라서 대략치 — 한글/전각 문자는 넓게, 영문/숫자는 좁게 잡아 칩 너비를 추정한다.
+function approxTextWidth(str, fontSize) {
+  let width = 0;
+  for (const ch of String(str)) {
+    if (ch === ' ') width += fontSize * 0.28;
+    else if (ch.codePointAt(0) > 0x2e7f) width += fontSize * 0.98;
+    else width += fontSize * 0.58;
+  }
+  return width;
+}
+
 // 자막을 영상 크기(WIDTH x HEIGHT)와 같은 투명 PNG에 그려서 ffmpeg overlay 필터로 얹는다.
+// 요즘 릴스/쇼츠 자막 트렌드(굵은 폰트 + 문구별 컬러 칩, 화면 중하단 배치)를 따라
+// 한 줄씩 개별 알약 모양 칩으로 그린다 — 큰 박스 하나에 다 몰아넣지 않는다.
 function buildCaptionOverlay(captionText) {
   const lines = captionText.split('\n').filter(Boolean);
   if (!lines.length) return null;
 
-  const fontSize = 40;
-  const lineHeight = fontSize * 1.25;
-  const paddingY = 20;
-  const boxHeight = lines.length * lineHeight + paddingY * 2;
-  const boxWidth = WIDTH - 80;
-  const boxX = (WIDTH - boxWidth) / 2;
-  const boxY = HEIGHT - boxHeight - 100;
-  const firstBaseline = boxY + paddingY + fontSize * 0.85;
-  const tspans = lines
-    .map((line, i) => `<tspan x="${WIDTH / 2}" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
+  const fontSize = 46;
+  const chipPaddingX = 28;
+  const chipPaddingY = 16;
+  const chipHeight = fontSize * 1.15 + chipPaddingY * 2;
+  const lineGap = 14;
+  const totalHeight = lines.length * chipHeight + (lines.length - 1) * lineGap;
+  // 화면 맨 아래가 아니라 중하단(위에서 약 62~72% 지점)에 오도록 — 트렌드 캡션 배치와 동일
+  const startY = HEIGHT * 0.62 - totalHeight / 2;
+
+  const chips = lines
+    .map((line, i) => {
+      const chipWidth = Math.min(WIDTH - 60, approxTextWidth(line, fontSize) * 1.05 + chipPaddingX * 2);
+      const chipX = (WIDTH - chipWidth) / 2;
+      const chipY = startY + i * (chipHeight + lineGap);
+      const textBaseline = chipY + chipHeight / 2 + fontSize * 0.33;
+      return `
+        <rect x="${chipX}" y="${chipY}" width="${chipWidth}" height="${chipHeight}" rx="${chipHeight / 2}" fill="url(#chipGradient)" filter="url(#chipShadow)" />
+        <text x="${WIDTH / 2}" y="${textBaseline}" font-size="${fontSize}" font-weight="800" letter-spacing="-0.5" fill="#14161a" text-anchor="middle">${escapeXml(line)}</text>
+      `;
+    })
     .join('');
 
   const svg = `
@@ -80,9 +103,15 @@ function buildCaptionOverlay(captionText) {
     <style>
       text { font-family: 'Noto Sans KR', sans-serif; }
     </style>
+    <linearGradient id="chipGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffd23f" />
+      <stop offset="100%" stop-color="#ff8a3d" />
+    </linearGradient>
+    <filter id="chipShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.35" />
+    </filter>
   </defs>
-  <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="12" fill="rgba(0,0,0,0.55)" />
-  <text x="${WIDTH / 2}" y="${firstBaseline}" font-size="${fontSize}" font-weight="700" fill="#fff" text-anchor="middle">${tspans}</text>
+  ${chips}
 </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
@@ -217,10 +246,12 @@ module.exports = (upload) => {
         clipPaths.push(clipPath);
       }
 
-      // 컷끼리 뚝뚝 끊기지 않도록 concat 대신 xfade로 0.4초 크로스페이드 전환을 준다.
+      // 컷끼리 뚝뚝 끊기지 않도록 concat 대신 xfade로 크로스페이드 전환을 준다. 매번 같은 fade만
+      // 쓰면 슬라이드쇼 같은 인상이 강해서, 요즘 릴스/쇼츠에서 흔히 쓰는 전환들을 컷마다 돌아가며 섞는다.
       // xfade는 겹치는 구간만큼 전체 길이가 짧아지므로(클립 N개, 겹침 t초 → N*clipSeconds-(N-1)*t)
       // 최종 길이도 그에 맞춰 다시 계산해야 한다.
       const XFADE_DURATION = 0.4;
+      const TRANSITIONS = ['fade', 'circleopen', 'zoomin', 'slideup', 'wiperight'];
       let baseVideoPath;
       let totalDuration;
 
@@ -237,7 +268,8 @@ module.exports = (upload) => {
         for (let i = 1; i < clipPaths.length; i++) {
           const offset = i * (clipSeconds - XFADE_DURATION);
           const outLabel = i === clipPaths.length - 1 ? 'xfinal' : `x${i}`;
-          filterParts.push(`[${prevLabel}][${i}:v]xfade=transition=fade:duration=${XFADE_DURATION}:offset=${offset}[${outLabel}]`);
+          const transition = TRANSITIONS[(i - 1) % TRANSITIONS.length];
+          filterParts.push(`[${prevLabel}][${i}:v]xfade=transition=${transition}:duration=${XFADE_DURATION}:offset=${offset}[${outLabel}]`);
           prevLabel = outLabel;
           totalDuration += clipSeconds - XFADE_DURATION;
         }

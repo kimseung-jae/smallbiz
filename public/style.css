@@ -14,6 +14,8 @@
 }
 
 * { box-sizing: border-box; }
+/* 결과물 컨테이너마다 img 너비 규칙을 따로 챙기지 않아도 화면 밖으로 삐져나오지 않게 하는 안전망 */
+img { max-width: 100%; }
 html, body {
   margin: 0;
   padding: 0;
@@ -477,7 +479,7 @@ html, body {
   cursor: pointer;
 }
 
-#comicArea img { width: 100%; border-radius: var(--radius-md); display: block; margin-top: 10px; }
+#comicArea img, #illustComicArea img { width: 100%; border-radius: var(--radius-md); display: block; margin-top: 10px; }
 
 .caption-input-row {
   display: flex;

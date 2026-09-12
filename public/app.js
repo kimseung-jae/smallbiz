@@ -1016,9 +1016,11 @@ illustComicBtn.addEventListener('click', async () => {
     }
     if (!res.ok) throw new Error(data.error || 'AI 일러스트 만화 생성 실패');
 
-    const replacedNote = data.replacedIndexes && data.replacedIndexes.length
-      ? `<div class="blog-note">일부 컷(${data.replacedIndexes.map((i) => i + 1).join(', ')}번)은 변환에 실패해 원본 사진으로 대체됐어요.</div>`
-      : '';
+    const replacedNote = data.quotaMessage
+      ? `<div class="blog-note">${data.quotaMessage}</div>`
+      : data.replacedIndexes && data.replacedIndexes.length
+        ? `<div class="blog-note">일부 컷(${data.replacedIndexes.map((i) => i + 1).join(', ')}번)은 변환에 실패해 원본 사진으로 대체됐어요.</div>`
+        : '';
 
     illustComicArea.innerHTML = `
       ${replacedNote}

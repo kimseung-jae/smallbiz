@@ -102,7 +102,7 @@ module.exports = (upload) => {
       );
 
       const replacedIndexes = [];
-      const debugReasons = [];
+      let quotaExhausted = false;
       const panelsHtml = results
         .map((result, i) => {
           let dataUri;
@@ -113,9 +113,9 @@ module.exports = (upload) => {
             tempPaths.push(tempPath);
             dataUri = `data:image/png;base64,${buf.toString('base64')}`;
           } else {
-            const reason = result.reason?.response?.data || result.reason?.message;
-            console.error(`illustration comic panel ${i} failed, using original photo:`, reason);
-            debugReasons.push(reason);
+            const geminiError = result.reason?.response?.data?.error;
+            console.error(`illustration comic panel ${i} failed, using original photo:`, geminiError || result.reason?.message);
+            if (geminiError?.status === 'RESOURCE_EXHAUSTED') quotaExhausted = true;
             replacedIndexes.push(i);
             const { mime, data } = toBase64(inputFiles[i].path);
             dataUri = `data:${mime};base64,${data}`;
@@ -148,7 +148,13 @@ module.exports = (upload) => {
       const outPath = path.join(OUTPUT_DIR, outName);
       await pageEl.screenshot({ path: outPath });
 
-      res.json({ url: `/output/${outName}`, replacedIndexes, debugReasons });
+      res.json({
+        url: `/output/${outName}`,
+        replacedIndexes,
+        quotaMessage: quotaExhausted
+          ? 'Google AI 크레딧이 부족해서 일부 컷은 원본 사진으로 대체됐어요. https://ai.studio/projects 에서 결제를 확인해주세요.'
+          : null,
+      });
     } catch (err) {
       console.error('illustration comic error:', err.response?.data || err.message);
       res.status(500).json({

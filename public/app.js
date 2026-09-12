@@ -1019,6 +1019,17 @@ async function generateComic(endpoint, label) {
 
 webtoonBtn.addEventListener('click', () => generateComic('/api/webtoon', '포토툰'));
 
+// 고객 리뷰 문장을 컷 수만큼 나눠서 말풍선 대사로 쓴다 — 문장 부호(. ! ?)로 먼저 나눠보고,
+// 문장이 하나뿐이면(부호가 없는 짧은 리뷰가 많다) 쉼표로 한 번 더 시도한다.
+function splitReviewIntoCaptions(review, count) {
+  let parts = review.split(/(?<=[.!?~])\s+/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length < 2) {
+    parts = review.split(/[,·]/).map((s) => s.trim()).filter(Boolean);
+  }
+  if (!parts.length) parts = [review.trim()];
+  return Array.from({ length: count }, (_, i) => parts[i] || '');
+}
+
 illustComicBtn.addEventListener('click', async () => {
   if (selectedFiles.length < 2) {
     illustComicArea.innerHTML = '<div class="blog-note">AI 일러스트 만화는 사진이 최소 2장 필요해요.</div>';
@@ -1037,12 +1048,18 @@ illustComicBtn.addEventListener('click', async () => {
     selectedFiles.forEach((f) => fd.append('photos', f));
     fd.append('storeName', storeName);
 
-    const autoCaptions = await fetchAutoCaptions('/api/webtoon/captions', {
-      storeName,
-      category: selectedStoreCategory,
-      features: introText,
-      panelCount: Math.min(selectedFiles.length, 4),
-    });
+    // 실제 고객 리뷰가 붙여넣어져 있으면(리뷰 답글 칸) 그 내용을 말풍선에 그대로 쓰고,
+    // 없으면 기존처럼 AI가 대사를 지어낸다.
+    const reviewText = reviewInput.value.trim();
+    const panelCount = Math.min(selectedFiles.length, 4);
+    const autoCaptions = reviewText
+      ? splitReviewIntoCaptions(reviewText, panelCount)
+      : await fetchAutoCaptions('/api/webtoon/captions', {
+          storeName,
+          category: selectedStoreCategory,
+          features: introText,
+          panelCount,
+        });
     fd.append('captions', JSON.stringify(autoCaptions || [introText]));
 
     const res = await fetch('/api/illustration-comic', { method: 'POST', body: fd });

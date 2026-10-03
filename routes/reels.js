@@ -118,6 +118,53 @@ function buildCaptionOverlay(captionText) {
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
+// 마지막에 붙는 브랜드 엔딩 카드 — 가게명/주소와 함께 "방문 유도" 문구를 넣어 영상이 그냥
+// 사진 슬라이드쇼가 아니라 실제 홍보 영상처럼 마무리되게 한다. drawtext가 없는 환경이라
+// 포스터/자막과 동일하게 sharp로 그린 PNG를 한 장의 "컷"으로 취급해 나머지 컷들과 함께 xfade한다.
+function buildEndCard({ storeName, address }) {
+  const centerX = WIDTH / 2;
+  const nameSize = 54;
+  const addressSize = 26;
+  const ctaSize = 32;
+
+  const ctaText = '📍 지금 바로 방문해보세요';
+  const ctaLabel = escapeXml(stripEmoji(ctaText).trim());
+  const ctaChipWidth = Math.min(WIDTH - 100, approxTextWidth(ctaLabel, ctaSize) * 1.05 + 64);
+  const ctaChipHeight = ctaSize * 1.15 + 36;
+  const ctaChipY = HEIGHT * 0.66;
+
+  const nameY = HEIGHT * 0.46;
+  const addressY = nameY + nameSize * 0.9;
+
+  const svg = `
+<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      text { font-family: 'Noto Sans KR', sans-serif; }
+    </style>
+    <linearGradient id="bgGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1b1d22" />
+      <stop offset="100%" stop-color="#101114" />
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffd23f" />
+      <stop offset="100%" stop-color="#ff8a3d" />
+    </linearGradient>
+    <filter id="endShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bgGradient)" />
+  <rect x="${centerX - 60}" y="${nameY - nameSize - 28}" width="120" height="4" rx="2" fill="url(#accentGradient)" />
+  <text x="${centerX}" y="${nameY}" font-size="${nameSize}" font-weight="800" letter-spacing="-1" fill="#fff" text-anchor="middle">${escapeXml(storeName || '')}</text>
+  ${address ? `<text x="${centerX}" y="${addressY}" font-size="${addressSize}" font-weight="500" fill="rgba(255,255,255,0.6)" text-anchor="middle">${escapeXml(address)}</text>` : ''}
+  <rect x="${centerX - ctaChipWidth / 2}" y="${ctaChipY}" width="${ctaChipWidth}" height="${ctaChipHeight}" rx="${ctaChipHeight / 2}" fill="url(#accentGradient)" filter="url(#endShadow)" />
+  <text x="${centerX}" y="${ctaChipY + ctaChipHeight / 2 + ctaSize * 0.33}" font-size="${ctaSize}" font-weight="800" letter-spacing="-0.5" fill="#14161a" text-anchor="middle">${ctaLabel}</text>
+</svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
 function pickMusic(mood) {
   if (!fs.existsSync(MUSIC_DIR)) return null;
   const files = fs.readdirSync(MUSIC_DIR).filter((f) => f.toLowerCase().endsWith('.mp3'));
@@ -144,13 +191,15 @@ module.exports = (upload) => {
       return res.json({ needsApiKey: true });
     }
 
-    const prompt = `당신은 소상공인 홍보 릴스(짧은 세로 영상) 자막을 쓰는 카피라이터입니다.
+    const prompt = `당신은 대기업 광고 캠페인을 다뤄온 15년 차 카피라이터입니다. 지금은 동네 소상공인 사장님의 홍보 릴스(짧은 세로 영상) 자막을 써주고 있습니다.
 가게명: ${storeName}
 업종/특징: ${category || ''} ${features || ''}
 
-이 릴스는 총 ${count}컷입니다. 각 컷에 들어갈 짧은 자막을 정확히 ${count}개 만들어주세요.
-- 각 자막은 16자 이내로 짧고 강렬하게
-- 순서대로 가게 소개 → 메뉴/특징 → 방문 유도 흐름이 되게
+이 릴스는 총 ${count}컷이고, 영상 마지막에는 가게명·주소와 함께 "지금 바로 방문해보세요" 문구가 담긴 브랜드 엔딩 카드가 자동으로 따로 붙습니다. 그러니 여기서 만드는 자막에는 "방문하세요/오세요" 같은 직접적인 CTA를 넣지 말고, 그 앞까지 시선을 사로잡는 역할만 하면 됩니다.
+각 컷에 들어갈 짧은 자막을 정확히 ${count}개 만들어주세요.
+- 각 자막은 16자 이내로 짧고 강렬하게. 진부한 표현("정성을 다해", "고객님을 위해") 대신 구체적이고 생생한 표현을 쓰세요.
+- 설명조가 아니라 광고 카피처럼 감각적으로 — 궁금증을 자극하는 후킹, 오감이 느껴지는 묘사, 숫자/디테일을 활용하세요.
+- 순서대로 (시선을 끄는 후킹) → (메뉴/특징의 매력 포인트) → (여운을 남기는 한 줄) 흐름이 되게
 
 반드시 아래 JSON 형식으로만 응답하세요. 다른 설명은 붙이지 마세요.
 {"captions": ["...", "..."]}`;
@@ -169,7 +218,7 @@ module.exports = (upload) => {
   });
 
   router.post('/', serializeUpload(upload.array('photos', 6), async (req, res) => {
-    const { caption, mood, useSample } = req.body;
+    const { caption, mood, useSample, storeName, address } = req.body;
     const files = useSample === 'true' ? getSampleFiles(4) : req.files;
 
     if (!files || files.length === 0) {
@@ -250,6 +299,30 @@ module.exports = (upload) => {
         clipPaths.push(clipPath);
       }
 
+      const clipDurations = clipPaths.map(() => clipSeconds);
+      let hasEndCard = false;
+
+      // 영상이 사진 슬라이드쇼로 뚝 끝나지 않고 실제 홍보 영상처럼 마무리되도록, 가게명/주소 +
+      // 방문 유도 문구가 담긴 브랜드 엔딩 카드를 마지막 컷으로 붙인다.
+      if (storeName && storeName.trim()) {
+        hasEndCard = true;
+        const ctaSeconds = 2.2;
+        const endCardPngPath = path.join(workDir, 'end_card.png');
+        fs.writeFileSync(endCardPngPath, await buildEndCard({ storeName: storeName.trim(), address: (address || '').trim() }));
+
+        const endClipPath = path.join(workDir, 'clip_endcard.mp4');
+        const zoomExpr = 'min(zoom+0.0012,1.08)';
+        await run([
+          '-y', '-loop', '1', '-i', endCardPngPath,
+          '-t', String(ctaSeconds),
+          '-vf', `zoompan=z='${zoomExpr}':d=${Math.round(FPS * ctaSeconds)}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`,
+          '-an', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', ...ENCODE_ARGS,
+          endClipPath,
+        ]);
+        clipPaths.push(endClipPath);
+        clipDurations.push(ctaSeconds);
+      }
+
       // 컷끼리 뚝뚝 끊기지 않도록 concat 대신 xfade로 크로스페이드 전환을 준다. 매번 같은 fade만
       // 쓰면 슬라이드쇼 같은 인상이 강해서, 요즘 릴스/쇼츠에서 흔히 쓰는 전환들을 컷마다 돌아가며 섞는다.
       // xfade는 겹치는 구간만큼 전체 길이가 짧아지므로(클립 N개, 겹침 t초 → N*clipSeconds-(N-1)*t)
@@ -258,24 +331,28 @@ module.exports = (upload) => {
       const TRANSITIONS = ['fade', 'circleopen', 'zoomin', 'slideup', 'wiperight'];
       let baseVideoPath;
       let totalDuration;
+      let captionCutoffTime = null;
 
       if (clipPaths.length === 1) {
         baseVideoPath = clipPaths[0];
-        totalDuration = clipSeconds;
+        totalDuration = clipDurations[0];
       } else {
         const xfadeArgs = ['-y'];
         for (const p of clipPaths) xfadeArgs.push('-i', p);
 
         const filterParts = [];
         let prevLabel = '0:v';
-        totalDuration = clipSeconds;
+        totalDuration = clipDurations[0];
         for (let i = 1; i < clipPaths.length; i++) {
-          const offset = i * (clipSeconds - XFADE_DURATION);
+          const offset = totalDuration - XFADE_DURATION;
           const outLabel = i === clipPaths.length - 1 ? 'xfinal' : `x${i}`;
           const transition = TRANSITIONS[(i - 1) % TRANSITIONS.length];
           filterParts.push(`[${prevLabel}][${i}:v]xfade=transition=${transition}:duration=${XFADE_DURATION}:offset=${offset}[${outLabel}]`);
           prevLabel = outLabel;
-          totalDuration += clipSeconds - XFADE_DURATION;
+          // 엔딩 카드로 넘어가는 전환이 시작되는 시점 — 전체 영상용 자막(caption)은 이 시점부터
+          // 꺼서 브랜드 엔딩 카드의 문구와 겹치지 않게 한다.
+          if (hasEndCard && i === clipPaths.length - 1) captionCutoffTime = offset;
+          totalDuration = offset + clipDurations[i];
         }
 
         xfadeArgs.push(
@@ -308,6 +385,8 @@ module.exports = (upload) => {
         overlayIndex = 1;
       }
 
+      const overlayEnable = captionCutoffTime !== null ? `:enable='lt(t,${captionCutoffTime})'` : '';
+
       const audioIndex = overlayIndex === null ? 1 : 2;
       const musicPath = pickMusic(mood);
       if (musicPath) {
@@ -324,7 +403,7 @@ module.exports = (upload) => {
       // 오디오 트랙이 0바이트로 누락되는 ffmpeg 버그가 있어 대신 정확한 길이를 '-t'로 명시한다.
       args.push(
         ...(overlayIndex !== null
-          ? ['-filter_complex', `[0:v][${overlayIndex}:v]overlay=0:0[v]`, '-map', '[v]']
+          ? ['-filter_complex', `[0:v][${overlayIndex}:v]overlay=0:0${overlayEnable}[v]`, '-map', '[v]']
           : ['-map', '0:v']),
         '-map', `${audioIndex}:a`,
         ...(audioFilter ? ['-af', audioFilter] : []),

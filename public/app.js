@@ -781,7 +781,7 @@ generateBtn.addEventListener('click', async () => {
     resultBox.hidden = false;
 
     const posterPromise = generatePoster({ storeName, headline, subtext, address: selectedStoreAddress });
-    const reelsPromise = generateReels({ storeName, introText, caption, mood: moodSelect.value });
+    const reelsPromise = generateReels({ storeName, introText, caption, mood: moodSelect.value, address: selectedStoreAddress });
 
     await Promise.allSettled([posterPromise, reelsPromise]);
     statusBox.hidden = true;
@@ -849,7 +849,7 @@ async function fetchAutoCaptions(endpoint, body) {
   }
 }
 
-async function generateReels({ storeName, introText, caption, mood }) {
+async function generateReels({ storeName, introText, caption, mood, address }) {
   const stopTimer = startElapsedTimer((s) => {
     reelsArea.textContent = `릴스 만드는 중... (${s}초 경과, 사진이 많으면 1~2분까지 걸릴 수 있어요)`;
   });
@@ -858,6 +858,8 @@ async function generateReels({ storeName, introText, caption, mood }) {
     selectedFiles.forEach((f) => fd.append('photos', f));
     fd.append('caption', caption);
     if (mood) fd.append('mood', mood);
+    if (storeName) fd.append('storeName', storeName);
+    if (address) fd.append('address', address);
 
     const perCutCaptions = await fetchAutoCaptions('/api/reels/captions', {
       storeName,

@@ -109,13 +109,15 @@ ${region ? `지역: ${region}\n` : ''}업종: ${category}
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      return res.status(502).json({ error: 'AI 응답을 파싱하지 못했습니다.', raw: text });
+      throw new Error('AI 응답을 파싱하지 못했습니다.');
     }
     const parsed = JSON.parse(jsonMatch[0]);
     res.json(parsed);
   } catch (err) {
-    console.error('generate-text error:', err.message);
-    res.status(500).json({ error: '문구 생성 중 오류가 발생했습니다.', detail: err.message });
+    // AI 키가 유효하지 않거나(인증 오류), 쿼터 초과, 일시적 네트워크 오류 등 어떤 이유로든
+    // AI 호출이 실패해도 화면이 통째로 에러로 막히지 않도록 템플릿 기반 문구로 대체한다.
+    console.error('generate-text error, falling back to template:', err.message);
+    res.json({ ...buildFallbackContent({ storeName, category, features, purpose, region }), aiFallback: true });
   }
 });
 

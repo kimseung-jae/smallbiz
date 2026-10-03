@@ -756,7 +756,9 @@ generateBtn.addEventListener('click', async () => {
   lockHeavyButtons();
   posterArea.textContent = '준비 중...';
   reelsArea.textContent = '준비 중...';
-  setStatus('AI가 홍보 문구를 쓰는 중...');
+  let stopStatusTimer = startElapsedTimer((s, remaining) => {
+    setStatus(`AI가 홍보 문구를 쓰는 중... (${s}초 경과${remainingLabel(remaining)})`);
+  }, 6);
 
   try {
     const textRes = await fetch('/api/generate-text', {
@@ -770,6 +772,7 @@ generateBtn.addEventListener('click', async () => {
       }),
     });
     const textData = await parseJsonSafe(textRes);
+    stopStatusTimer();
     if (!textRes.ok) throw new Error(textData.error || '문구 생성 실패');
 
     const flyerLines = String(textData.flyer_text || '').split('\n').filter(Boolean);
@@ -777,15 +780,20 @@ generateBtn.addEventListener('click', async () => {
     const subtext = flyerLines.slice(1).join(' ') || introText;
     const caption = (textData.sns_captions && textData.sns_captions[0]) || introText;
 
-    setStatus('포스터와 릴스를 동시에 만드는 중... (영상은 시간이 좀 더 걸려요)');
     resultBox.hidden = false;
+    const combinedEstimate = 12 + selectedFiles.length * 7; // 릴스가 더 오래 걸려서 그 추정치에 맞춤
+    stopStatusTimer = startElapsedTimer((s, remaining) => {
+      setStatus(`포스터와 릴스를 동시에 만드는 중... (${s}초 경과${remainingLabel(remaining)})`);
+    }, combinedEstimate);
 
     const posterPromise = generatePoster({ storeName, headline, subtext, address: selectedStoreAddress });
     const reelsPromise = generateReels({ storeName, introText, caption, mood: moodSelect.value, address: selectedStoreAddress });
 
     await Promise.allSettled([posterPromise, reelsPromise]);
+    stopStatusTimer();
     statusBox.hidden = true;
   } catch (err) {
+    stopStatusTimer();
     showError(err.message || '알 수 없는 오류가 발생했습니다.');
   } finally {
     unlockHeavyButtons();

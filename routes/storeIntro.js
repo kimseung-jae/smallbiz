@@ -34,40 +34,74 @@ function cleanSnippet(text, maxLength = 90) {
   return s.trim();
 }
 
-// 네이버 검색 오픈API(블로그 검색) 결과를 AI가 읽고 "한 줄 소개" 후보를 뽑아주는 라우트.
+// 네이버 블로그 검색 — 공식 오픈API.
+async function fetchNaverBlogs(storeName) {
+  if (!process.env.NAVER_CLIENT_ID || !process.env.NAVER_CLIENT_SECRET) return [];
+  try {
+    const res = await axios.get('https://openapi.naver.com/v1/search/blog.json', {
+      params: { query: storeName, display: 5, sort: 'sim' },
+      headers: {
+        'X-Naver-Client-Id': process.env.NAVER_CLIENT_ID,
+        'X-Naver-Client-Secret': process.env.NAVER_CLIENT_SECRET,
+      },
+      timeout: 8000,
+    });
+    return (res.data.items || []).map((item) => ({
+      title: stripHtml(item.title),
+      description: stripHtml(item.description),
+    }));
+  } catch (err) {
+    console.error('naver blog search error:', err.response?.data || err.message);
+    return [];
+  }
+}
+
+// 다음(카카오) 블로그 검색 — 다음 이미지 검색과 같은 KAKAO_REST_API_KEY를 그대로 재사용.
+// 네이버 검색 결과와 겹치지 않는 다른 블로그 글이 섞여 있는 경우가 많아, 후보 소스를 넓히는 용도.
+async function fetchDaumBlogs(storeName) {
+  if (!process.env.KAKAO_REST_API_KEY) return [];
+  try {
+    const res = await axios.get('https://dapi.kakao.com/v2/search/blog', {
+      params: { query: storeName, size: 5, sort: 'accuracy' },
+      headers: { Authorization: `KakaoAK ${process.env.KAKAO_REST_API_KEY}` },
+      timeout: 8000,
+    });
+    return (res.data.documents || []).map((doc) => ({
+      title: stripHtml(doc.title),
+      description: stripHtml(doc.contents),
+    }));
+  } catch (err) {
+    console.error('daum blog search error:', err.response?.data || err.message);
+    return [];
+  }
+}
+
+// 네이버 + 다음(카카오) 블로그 검색 결과를 AI가 같이 읽고 "한 줄 소개" 후보를 뽑아주는 라우트.
 // 실제 별점/방문자리뷰 API는 존재하지 않으므로, 블로그 포스트를 근사치 소스로 사용한다.
-// 스크래핑이 아니라 공식 API만 사용 — 네이버 ToS/구조 변경에 영향받지 않도록.
+// 스크래핑이 아니라 공식 API만 사용 — 네이버/카카오 ToS/구조 변경에 영향받지 않도록.
 router.post('/', async (req, res) => {
   const { storeName } = req.body;
   if (!storeName || !storeName.trim()) {
     return res.status(400).json({ error: '매장명이 필요합니다.' });
   }
 
-  if (!process.env.NAVER_CLIENT_ID || !process.env.NAVER_CLIENT_SECRET) {
+  if (!process.env.NAVER_CLIENT_ID && !process.env.KAKAO_REST_API_KEY) {
     return res.json({
       needsApiKey: true,
-      message: '네이버 검색 API 키가 설정되지 않아 블로그 후기를 가져올 수 없어요. .env에 NAVER_CLIENT_ID / NAVER_CLIENT_SECRET을 추가해주세요.',
+      message: '네이버/카카오 검색 API 키가 설정되지 않아 블로그 후기를 가져올 수 없어요.',
     });
   }
 
   try {
-    const blogRes = await axios.get('https://openapi.naver.com/v1/search/blog.json', {
-      params: { query: storeName, display: 5, sort: 'sim' },
-      headers: {
-        'X-Naver-Client-Id': process.env.NAVER_CLIENT_ID,
-        'X-Naver-Client-Secret': process.env.NAVER_CLIENT_SECRET,
-      },
-    });
+    const [naverItems, daumItems] = await Promise.all([
+      fetchNaverBlogs(storeName),
+      fetchDaumBlogs(storeName),
+    ]);
+    const snippets = [...naverItems, ...daumItems];
 
-    const items = blogRes.data.items || [];
-    if (!items.length) {
+    if (!snippets.length) {
       return res.json({ candidates: [], message: '관련 블로그 포스트를 찾지 못했어요. 직접 입력해주세요.' });
     }
-
-    const snippets = items.map((item) => ({
-      title: stripHtml(item.title),
-      description: stripHtml(item.description),
-    }));
 
     if (!hasAIKey()) {
       // AI 요약 없이, 정리된 스니펫을 후보로 제공 (해시태그/말줄임표 등 제거)
@@ -81,7 +115,7 @@ router.post('/', async (req, res) => {
       .map((s, i) => `${i + 1}. ${s.title} - ${s.description}`)
       .join('\n');
 
-    const prompt = `아래는 "${storeName}"에 대한 네이버 블로그 포스트 검색 결과입니다.
+    const prompt = `아래는 "${storeName}"에 대한 네이버/다음 블로그 포스트 검색 결과입니다.
 
 ${snippetBlock}
 
@@ -97,16 +131,21 @@ ${snippetBlock}
   "combined": "..."
 }`;
 
-    const text = await callAI(prompt, 500);
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    // AI 키가 무효하거나(인증 오류) 일시적으로 실패해도, 이미 검색은 성공했으니 원문 스니펫
+    // 기반 후보로 조용히 대체한다 — 전체를 500으로 막지 않는다.
+    try {
+      const text = await callAI(prompt, 500);
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('AI 응답 파싱 실패');
+      const parsed = JSON.parse(jsonMatch[0]);
+      return res.json({ candidates: parsed.candidates || [], combined: parsed.combined || null, source: 'blog-ai' });
+    } catch (aiErr) {
+      console.error('store-intro AI error, falling back to raw snippets:', aiErr.message);
       const candidates = snippets
         .map((s) => cleanSnippet(s.description))
         .filter((s) => s.length >= 5);
       return res.json({ candidates: candidates.slice(0, 3), source: 'blog-raw-fallback' });
     }
-    const parsed = JSON.parse(jsonMatch[0]);
-    res.json({ candidates: parsed.candidates || [], combined: parsed.combined || null, source: 'blog-ai' });
   } catch (err) {
     console.error('store-intro error:', err.message);
     res.status(500).json({ error: '블로그 후기를 가져오는 중 오류가 발생했습니다.', detail: err.message });

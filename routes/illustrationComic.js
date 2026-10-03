@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const sharp = require('sharp');
 const { getSampleFiles } = require('./sampleMedia');
 const { getBrowser } = require('../lib/browser');
 const { hasImageAIKey, restyleImageWithPrompt } = require('../lib/aiClient');
@@ -51,12 +52,27 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// 프롬프트만으로는 모델이 그림자/그라데이션/디테일을 계속 살려서 그려서(실사진이 복잡할수록 심함),
+// "미즈마루풍"이 요구하는 평평한 단색+디테일 생략을 강제로 보정한다.
+// median으로 잔 디테일(질감/그림자 얼룩)을 뭉개서 하나의 색 덩어리로 만들고, palette 양자화로
+// 색상 수 자체를 줄여 그라데이션을 평평한 단색 면으로 쪼갠다(dither:0 = 번짐 없이 딱 떨어지게).
+async function flattenToMizumaruPalette(buffer) {
+  return sharp(buffer)
+    .median(7)
+    .modulate({ saturation: 1.3, brightness: 1.03 })
+    .linear(1.12, -16)
+    .png({ palette: true, colors: 6, dither: 0 })
+    .toBuffer();
+}
+
 // OpenRouter 경유로 그림체를 바꾼다 — 이미 릴스 사진 스타일 변환에 쓰던 것과 같은 키(OPENROUTER_API_KEY)라
 // 구글 Gemini 직접 호출(별도 결제/크레딧)보다 이미 설정된 키를 그대로 활용할 수 있다.
-async function generateIllustration(filePath, stylePrompt) {
+async function generateIllustration(filePath, stylePrompt, styleKey) {
   const { mime, data } = toBase64(filePath);
   const buffer = Buffer.from(data, 'base64');
-  return restyleImageWithPrompt(buffer, mime, stylePrompt);
+  const restyled = await restyleImageWithPrompt(buffer, mime, stylePrompt);
+  if (styleKey === 'mizumaru') return flattenToMizumaruPalette(restyled);
+  return restyled;
 }
 
 module.exports = (upload) => {
@@ -83,7 +99,8 @@ module.exports = (upload) => {
       return res.status(400).json({ error: 'AI 일러스트 만화 생성에는 사진이 최소 2개 필요합니다.' });
     }
 
-    const stylePrompt = STYLE_PROMPTS[style] || STYLE_PROMPTS[DEFAULT_STYLE];
+    const resolvedStyle = STYLE_PROMPTS[style] ? style : DEFAULT_STYLE;
+    const stylePrompt = STYLE_PROMPTS[resolvedStyle];
 
     let page;
     const tempPaths = [];
@@ -95,7 +112,7 @@ module.exports = (upload) => {
       // 컷 하나가 실패(모델 오류/타임아웃)해도 전체가 에러로 끝나지 않도록 allSettled로 동시 호출하고,
       // 실패한 컷은 원본 사진을 그대로 써서 나머지는 정상적으로 만들어지게 한다.
       const results = await Promise.allSettled(
-        inputFiles.map((f) => generateIllustration(f.path, stylePrompt)),
+        inputFiles.map((f) => generateIllustration(f.path, stylePrompt, resolvedStyle)),
       );
 
       const replacedIndexes = [];

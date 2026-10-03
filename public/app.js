@@ -793,21 +793,32 @@ generateBtn.addEventListener('click', async () => {
 });
 
 // "준비 중..."이 안 바뀌고 계속 떠 있으면 서버가 멈춘 것처럼 보인다 — 몇 초 지났는지 1초마다
-// 갱신해서 "지금도 진행 중"이라는 걸 보여준다. 정확한 남은 시간은 알 수 없어서 경과 시간만 보여준다.
-function startElapsedTimer(render) {
+// 갱신해서 "지금도 진행 중"이라는 걸 보여준다. estimatedSeconds를 주면 대략 남은 시간도 같이
+// 계산해서 넘겨준다 — 실제 소요 시간은 서버 상태에 따라 들쭉날쭉해서 어디까지나 "대략"이다.
+function startElapsedTimer(render, estimatedSeconds) {
   let seconds = 0;
-  render(seconds);
+  const tick = () => {
+    const remaining = estimatedSeconds ? Math.max(0, Math.round(estimatedSeconds - seconds)) : null;
+    render(seconds, remaining);
+  };
+  tick();
   const id = setInterval(() => {
     seconds += 1;
-    render(seconds);
+    tick();
   }, 1000);
   return () => clearInterval(id);
 }
 
+// 남은 시간이 있으면 "약 N초 남음", 추정 시간을 넘기면 "조금만 더 기다려주세요"로 자연스럽게 전환.
+function remainingLabel(remaining) {
+  if (remaining === null || remaining === undefined) return '';
+  return remaining > 0 ? ` · 약 ${remaining}초 남음` : ' · 조금만 더 기다려주세요';
+}
+
 async function generatePoster({ storeName, headline, subtext, address }) {
-  const stopTimer = startElapsedTimer((s) => {
-    posterArea.innerHTML = `<div class="spinner"></div><div class="blog-note">포스터 만드는 중... (${s}초 경과)</div>`;
-  });
+  const stopTimer = startElapsedTimer((s, remaining) => {
+    posterArea.innerHTML = `<div class="spinner"></div><div class="blog-note">포스터 만드는 중... (${s}초 경과${remainingLabel(remaining)})</div>`;
+  }, 8);
   try {
     const fd = new FormData();
     fd.append('photo', selectedFiles[0]);
@@ -850,9 +861,10 @@ async function fetchAutoCaptions(endpoint, body) {
 }
 
 async function generateReels({ storeName, introText, caption, mood, address }) {
-  const stopTimer = startElapsedTimer((s) => {
-    reelsArea.textContent = `릴스 만드는 중... (${s}초 경과, 사진이 많으면 1~2분까지 걸릴 수 있어요)`;
-  });
+  const reelsEstimate = 12 + selectedFiles.length * 7;
+  const stopTimer = startElapsedTimer((s, remaining) => {
+    reelsArea.textContent = `릴스 만드는 중... (${s}초 경과${remainingLabel(remaining)})`;
+  }, reelsEstimate);
   try {
     const fd = new FormData();
     selectedFiles.forEach((f) => fd.append('photos', f));
@@ -978,9 +990,10 @@ async function generateComic(endpoint, label) {
     return;
   }
   lockHeavyButtons();
-  const stopTimer = startElapsedTimer((s) => {
-    comicArea.innerHTML = `<div class="blog-note">${label} 만드는 중... (${s}초 경과)</div>`;
-  });
+  const comicEstimate = 8 + selectedFiles.length * 2;
+  const stopTimer = startElapsedTimer((s, remaining) => {
+    comicArea.innerHTML = `<div class="blog-note">${label} 만드는 중... (${s}초 경과${remainingLabel(remaining)})</div>`;
+  }, comicEstimate);
 
   try {
     const storeName = storeNameInput.value.trim();
@@ -1038,9 +1051,10 @@ illustComicBtn.addEventListener('click', async () => {
     return;
   }
   lockHeavyButtons();
-  const stopTimer = startElapsedTimer((s) => {
-    illustComicArea.innerHTML = `<div class="blog-note">AI 일러스트 만화 만드는 중... (${s}초 경과, 그림체 변환이라 시간이 좀 걸려요)</div>`;
-  });
+  const illustEstimate = 25 + Math.min(selectedFiles.length, 4) * 5;
+  const stopTimer = startElapsedTimer((s, remaining) => {
+    illustComicArea.innerHTML = `<div class="blog-note">AI 일러스트 만화 만드는 중... (${s}초 경과${remainingLabel(remaining)}, 그림체 변환이라 시간이 좀 걸려요)</div>`;
+  }, illustEstimate);
 
   try {
     const storeName = storeNameInput.value.trim();
@@ -1107,9 +1121,10 @@ cardNewsBtn.addEventListener('click', async () => {
   }
 
   lockHeavyButtons();
-  const stopTimer = startElapsedTimer((s) => {
-    cardNewsArea.innerHTML = `<div class="blog-note">카드뉴스 만드는 중... (${s}초 경과)</div>`;
-  });
+  const cardNewsEstimate = 6 + selectedFiles.length * 2;
+  const stopTimer = startElapsedTimer((s, remaining) => {
+    cardNewsArea.innerHTML = `<div class="blog-note">카드뉴스 만드는 중... (${s}초 경과${remainingLabel(remaining)})</div>`;
+  }, cardNewsEstimate);
 
   try {
     // 슬라이드별 문구는 AI가 자동으로 만들어준다 — 실패하거나 키가 없으면 한 줄 소개를

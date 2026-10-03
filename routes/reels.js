@@ -14,7 +14,9 @@ const { serializeUpload } = require('../lib/requestQueue');
 const WIDTH = 720;
 const HEIGHT = 1280;
 const FPS = 30;
-const ENCODE_ARGS = ['-preset', 'veryfast', '-threads', '1'];
+// crf는 낮을수록 화질이 좋아지고(기본 23 -> 20), preset(인코딩 속도)은 그대로 유지하므로
+// Render 무료 서버의 CPU 부하는 거의 그대로면서 블록/뭉개짐이 눈에 띄게 줄어든다.
+const ENCODE_ARGS = ['-preset', 'veryfast', '-crf', '20', '-threads', '1'];
 // Render에 올라가는 ffmpeg-static 리눅스 바이너리는 drawtext 필터가 빠져있어서
 // ("No such filter: 'drawtext'") 자막을 sharp로 그린 투명 PNG를 overlay 필터로 합성한다.
 const MUSIC_DIR = path.join(__dirname, '..', 'music');

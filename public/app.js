@@ -466,28 +466,9 @@ function geocodeQueryAllCandidates(query) {
   });
 }
 
-// 매장 위치 찾기는 항상 내 위치를 먼저 받은 뒤, 네이버 지역검색 + 카카오 키워드검색을 동시에 돌려서 합친다.
-// 결과가 없으면 네이버 지오코딩(주소) → OSM(무료, 최후 수단) 순으로 대체.
-async function searchStoreOnMap() {
-  // 아무것도 입력 안 하고 검색을 누르면, 회색 예시글자(placeholder)를 그대로 검색해줌
-  let query = mapSearchInput.value.trim();
-  if (!query && mapSearchInput.placeholder.startsWith('예: ')) {
-    query = mapSearchInput.placeholder.replace(/^예:\s*/, '');
-    mapSearchInput.value = query;
-  }
-  if (!query) return;
-  if (naverMapAuthFailed) return; // 이미 안내 메시지 표시됨
-  if (!naverMap || typeof naver === 'undefined' || !naver.maps.Service) {
-    mapResultInfo.textContent = '지도 검색을 쓸 수 없어요. 매장명은 직접 입력해주세요.';
-    return;
-  }
-
-  mapResultInfo.textContent = '내 위치 확인 중...';
-  const loc = await getUserLocation(); // 무조건 먼저 내 위치를 받고 시작 (거부되면 null, 전국 기준으로 대체)
-
-  mapResultInfo.textContent = '검색 중...';
-
-  const locParam = loc ? `&lat=${loc.lat}&lng=${loc.lng}` : '';
+// 네이버 지역검색 + 카카오 키워드검색을 동시에 돌려서 중복 제거하고 합친다.
+// "검색" 버튼(전체 흐름)과 입력 중 자동완성 둘 다 이 함수를 그대로 재사용한다.
+async function fetchMergedPlaces(query, locParam = '') {
   const [naverRes, kakaoRes] = await Promise.allSettled([
     fetch(`/api/naver-local-search?query=${encodeURIComponent(query)}`).then((r) => r.json()),
     fetch(`/api/kakao-search?query=${encodeURIComponent(query)}${locParam}`).then((r) => r.json()),
@@ -510,6 +491,53 @@ async function searchStoreOnMap() {
       merged.push({ name: p.name, address: p.address, category: p.category, lat: p.lat, lng: p.lng });
     }
   }
+  return merged;
+}
+
+// 검색창에 입력하는 동안 "서울 순대국"처럼 치는 즉시(타이핑 멈추고 0.35초 뒤) 자동완성 후보를 보여준다 —
+// "검색" 버튼을 누르기 전에 바로 골라서 선택할 수 있게. 이미 받아둔 위치(userLocation)가 있으면
+// 그대로 쓰고, 없다고 매번 새로 위치 권한을 묻지는 않는다(타이핑 중 권한 팝업이 뜨면 방해가 됨).
+let autocompleteTimer = null;
+mapSearchInput.addEventListener('input', () => {
+  clearTimeout(autocompleteTimer);
+  const query = mapSearchInput.value.trim();
+  if (query.length < 2) return;
+  if (naverMapAuthFailed || !naverMap || typeof naver === 'undefined' || !naver.maps.Service) return;
+
+  autocompleteTimer = setTimeout(async () => {
+    // 타이핑이 빨라서 여러 요청이 겹치면, 그 사이 입력값이 바뀐 낡은 결과는 버린다.
+    const requestedQuery = query;
+    const locParam = userLocation ? `&lat=${userLocation.lat}&lng=${userLocation.lng}` : '';
+    const merged = await fetchMergedPlaces(requestedQuery, locParam);
+    if (mapSearchInput.value.trim() !== requestedQuery) return;
+    if (merged.length) renderResultList(merged.slice(0, 8));
+  }, 350);
+});
+
+// 매장 위치 찾기는 항상 내 위치를 먼저 받은 뒤, 네이버 지역검색 + 카카오 키워드검색을 동시에 돌려서 합친다.
+// 결과가 없으면 네이버 지오코딩(주소) → OSM(무료, 최후 수단) 순으로 대체.
+async function searchStoreOnMap() {
+  clearTimeout(autocompleteTimer); // "검색"을 바로 눌렀으면 입력 중 자동완성 예약은 취소
+  // 아무것도 입력 안 하고 검색을 누르면, 회색 예시글자(placeholder)를 그대로 검색해줌
+  let query = mapSearchInput.value.trim();
+  if (!query && mapSearchInput.placeholder.startsWith('예: ')) {
+    query = mapSearchInput.placeholder.replace(/^예:\s*/, '');
+    mapSearchInput.value = query;
+  }
+  if (!query) return;
+  if (naverMapAuthFailed) return; // 이미 안내 메시지 표시됨
+  if (!naverMap || typeof naver === 'undefined' || !naver.maps.Service) {
+    mapResultInfo.textContent = '지도 검색을 쓸 수 없어요. 매장명은 직접 입력해주세요.';
+    return;
+  }
+
+  mapResultInfo.textContent = '내 위치 확인 중...';
+  const loc = await getUserLocation(); // 무조건 먼저 내 위치를 받고 시작 (거부되면 null, 전국 기준으로 대체)
+
+  mapResultInfo.textContent = '검색 중...';
+
+  const locParam = loc ? `&lat=${loc.lat}&lng=${loc.lng}` : '';
+  const merged = await fetchMergedPlaces(query, locParam);
 
   if (merged.length) {
     renderResultList(merged);

@@ -9,10 +9,11 @@ const { getSampleFiles } = require('./sampleMedia');
 const { restyleImageAsAnimation, callAI, hasAIKey } = require('../lib/aiClient');
 const { serializeUpload } = require('../lib/requestQueue');
 
-// Render 무료 플랜(RAM 512MB)에서 1080x1920 인코딩이 메모리를 넘겨 서버 전체가 죽는 문제가 있어
-// 해상도를 낮추고 인코딩 부하를 줄임 (720x1280도 SNS 릴스용으로 충분한 화질)
-const WIDTH = 720;
-const HEIGHT = 1280;
+// Render 무료 플랜(RAM 512MB)에서 1080x1920은 물론 720x1280도 "Ran out of memory (used over
+// 512MB)"로 인스턴스가 죽는 걸 이벤트 로그로 직접 확인했다 — 한 단계 더 낮춰서 여유를 둔다.
+// 540x960도 세로 숏폼(릴스/쇼츠)에서 체감 화질 차이는 크지 않다.
+const WIDTH = 540;
+const HEIGHT = 960;
 const FPS = 30;
 // crf 20으로 낮춰봤다가(기본 23) 실제로 502/503이 재현돼서 되돌림 — 릴스 한 건에 ffmpeg를
 // 여러 번(컷마다 + xfade + 엔딩카드 + 최종 합성) 호출하는데, crf를 낮추면 그 전체에 걸쳐
@@ -347,11 +348,13 @@ module.exports = (upload) => {
       // xfade는 겹치는 구간만큼 전체 길이가 짧아지므로(클립 N개, 겹침 t초 → N*clipSeconds-(N-1)*t)
       // 최종 길이도 그에 맞춰 다시 계산해야 한다.
       //
-      // 주의: 두 클립씩만 순차적으로 합치는 방식(ffmpeg N-1번 호출)도 시도해봤는데, 메모리는
-      // 안정적이었지만 Render 무료 서버의 느린 CPU에서는 호출 횟수가 늘어난 만큼 전체 시간이
-      // 너무 길어져서(3장짜리도 60초 넘게 걸림) 오히려 더 안 좋았다 — 그래서 한 번의
-      // filter_complex로 처리하는 원래 방식으로 되돌리고, 그 대신 입력 사진 수 자체를
-      // MAX_PHOTOS로 제한해서 동시 디코딩 스트림 수(메모리)를 안전한 선에서 묶어둔다.
+      // 주의: 한 번의 filter_complex에 N개 클립을 전부 넣는 방식은 Render에서 "Ran out of memory
+      // (used over 512MB)"로 인스턴스 자체가 죽는 걸 이벤트 로그로 직접 확인했다 — 사진 수를
+      // 4장으로 제한해도(MAX_REELS_PHOTOS) 엔딩카드까지 5개 클립을 동시에 디코딩하면 여전히
+      // 넘었다. 그래서 두 클립씩만 순차적으로 합치는 방식(ffmpeg N-1번 호출, 항상 스트림 2개만
+      // 동시 디코딩)으로 바꿨다. 호출 횟수가 늘어 시간은 조금 더 걸리지만, 사진 수가 4장으로
+      // 제한돼 있어서(이전에 6장으로 테스트했을 때처럼 호출이 과도하게 늘어나는 일은 없다) 감당할
+      // 만한 수준이다.
       const XFADE_DURATION = 0.4;
       const TRANSITIONS = ['fade', 'circleopen', 'zoomin', 'slideup', 'wiperight'];
       let baseVideoPath;
@@ -362,33 +365,31 @@ module.exports = (upload) => {
         baseVideoPath = clipPaths[0];
         totalDuration = clipDurations[0];
       } else {
-        const xfadeArgs = ['-y'];
-        for (const p of clipPaths) xfadeArgs.push('-i', p);
-
-        const filterParts = [];
-        let prevLabel = '0:v';
+        let accPath = clipPaths[0];
         totalDuration = clipDurations[0];
+
         for (let i = 1; i < clipPaths.length; i++) {
           const offset = totalDuration - XFADE_DURATION;
-          const outLabel = i === clipPaths.length - 1 ? 'xfinal' : `x${i}`;
           const transition = TRANSITIONS[(i - 1) % TRANSITIONS.length];
-          filterParts.push(`[${prevLabel}][${i}:v]xfade=transition=${transition}:duration=${XFADE_DURATION}:offset=${offset}[${outLabel}]`);
-          prevLabel = outLabel;
+          const stepOutPath = path.join(workDir, `xfade_step_${i}.mp4`);
+
+          await run([
+            '-y', '-i', accPath, '-i', clipPaths[i],
+            '-filter_complex', `[0:v][1:v]xfade=transition=${transition}:duration=${XFADE_DURATION}:offset=${offset}[v]`,
+            '-map', '[v]',
+            '-pix_fmt', 'yuv420p',
+            '-c:v', 'libx264', ...ENCODE_ARGS,
+            stepOutPath,
+          ]);
+
           // 엔딩 카드로 넘어가는 전환이 시작되는 시점 — 전체 영상용 자막(caption)은 이 시점부터
           // 꺼서 브랜드 엔딩 카드의 문구와 겹치지 않게 한다.
           if (hasEndCard && i === clipPaths.length - 1) captionCutoffTime = offset;
           totalDuration = offset + clipDurations[i];
+          accPath = stepOutPath;
         }
 
-        xfadeArgs.push(
-          '-filter_complex', filterParts.join(';'),
-          '-map', '[xfinal]',
-          '-pix_fmt', 'yuv420p',
-          '-c:v', 'libx264', ...ENCODE_ARGS,
-        );
-        baseVideoPath = path.join(workDir, 'xfade.mp4');
-        xfadeArgs.push(baseVideoPath);
-        await run(xfadeArgs);
+        baseVideoPath = accPath;
       }
 
       const outName = `reels-${Date.now()}.mp4`;

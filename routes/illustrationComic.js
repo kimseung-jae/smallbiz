@@ -82,7 +82,7 @@ module.exports = (upload) => {
     if (!hasImageAIKey()) {
       return res.json({
         needsApiKey: true,
-        message: 'AI 이미지 생성 키가 설정되지 않아 AI 일러스트 만화를 만들 수 없어요. .env에 OPENROUTER_API_KEY를 추가해주세요. 그 전까지는 "포토툰" 모드(/api/webtoon)를 이용해주세요.',
+        message: 'AI 이미지 생성 키가 설정되지 않아 AI 일러스트 만화를 만들 수 없어요. .env에 OPENROUTER_API_KEY 또는 GEMINI_API_KEY를 추가해주세요. 그 전까지는 "포토툰" 모드(/api/webtoon)를 이용해주세요.',
       });
     }
 
@@ -171,7 +171,7 @@ module.exports = (upload) => {
         url: `/output/${outName}`,
         replacedIndexes,
         quotaMessage: quotaExhausted
-          ? 'OpenRouter 크레딧이 부족해서 일부 컷은 원본 사진으로 대체됐어요. https://openrouter.ai/credits 에서 잔액을 확인해주세요.'
+          ? 'AI 이미지 생성 크레딧/한도가 부족해서 일부 컷은 원본 사진으로 대체됐어요. OpenRouter(openrouter.ai/credits) 또는 Gemini(aistudio.google.com) 쪽 잔액을 확인해주세요.'
           : null,
       });
     } catch (err) {

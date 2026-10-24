@@ -5,7 +5,7 @@ const router = express.Router();
 
 // 다음(Daum) 검색 API의 이미지 검색 — 카카오가 다음을 인수해서 카카오 REST API 키로 바로 사용 가능.
 // 네이버 이미지 검색과 같은 성격(웹 전체 검색)이라 셋을 합쳐서 "실제 웹 이미지" 후보로 제공.
-async function fetchDaumImages(query) {
+async function fetchDaumImages(query, filterQuery = query) {
   if (!process.env.KAKAO_REST_API_KEY) return { needsApiKey: true, images: [] };
 
   const response = await axios.get('https://dapi.kakao.com/v2/search/image', {
@@ -24,7 +24,7 @@ async function fetchDaumImages(query) {
     height: doc.height,
   }));
 
-  return { images: filterRelevantImages(images, query).slice(0, 12) };
+  return { images: filterRelevantImages(images, filterQuery).slice(0, 12) };
 }
 
 router.get('/', async (req, res) => {

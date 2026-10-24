@@ -62,7 +62,11 @@ router.get('/', async (req, res) => {
     }
   }
 
-  res.status(500).json({ error: '주변 가게 검색 중 오류가 발생했습니다.', detail: lastErr?.message });
+  // Render 공용 IP가 Overpass 공개 서버들한테 자주 429(rate limit)를 받는다 — 이건 카카오 결과로
+  // 이미 보완되는 보조 소스일 뿐이라, 호출부가 어차피 Promise.allSettled로 무시하는 걸 굳이
+  // 500/에러 로그로 시끄럽게 만들지 않고 빈 결과로 조용히 넘긴다.
+  console.error('nearby places: all mirrors failed, returning empty:', lastErr?.message);
+  res.json({ places: [] });
 });
 
 module.exports = router;

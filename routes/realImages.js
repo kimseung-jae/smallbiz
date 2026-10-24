@@ -15,10 +15,13 @@ router.post('/', async (req, res) => {
   const regionHint = address ? String(address).split(' ').slice(0, 2).join(' ') : '';
   const query = regionHint ? `${storeName} ${regionHint}` : storeName;
 
+  // 검색 자체는 지역명을 포함한 넓은 query로 하되(검색엔진 recall 향상), 관련도 필터링은
+  // storeName만으로 한다 — "강남구"/"서울특별시" 같은 행정구역명이 토큰으로 들어가면 그 지역
+  // 아무 뉴스/부동산 기사나 다 "관련 있음"으로 통과해버리는 문제가 있었다(실제로 확인됨).
   const [daumRes, naverRes, googleRes] = await Promise.allSettled([
-    fetchDaumImages(query),
-    fetchNaverImages(query),
-    fetchGoogleImages(query),
+    fetchDaumImages(query, storeName),
+    fetchNaverImages(query, storeName),
+    fetchGoogleImages(query, storeName),
   ]);
 
   const pick = (r) => (r.status === 'fulfilled' && !r.value.needsApiKey) ? (r.value.images || []) : [];

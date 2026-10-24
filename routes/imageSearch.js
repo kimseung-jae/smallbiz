@@ -9,7 +9,7 @@ function stripHtml(str) {
 
 // 네이버 검색 오픈API(이미지 검색) — 매장명/키워드로 웹에 있는 관련 이미지를 찾아준다.
 // 사장님이 직접 찍은 사진이 부족할 때 참고/보완용으로 사용.
-async function fetchNaverImages(query) {
+async function fetchNaverImages(query, filterQuery = query) {
   if (!process.env.NAVER_CLIENT_ID || !process.env.NAVER_CLIENT_SECRET) return { needsApiKey: true, images: [] };
 
   const response = await axios.get('https://openapi.naver.com/v1/search/image', {
@@ -28,7 +28,7 @@ async function fetchNaverImages(query) {
     height: item.sizeheight,
   }));
 
-  return { images: filterRelevantImages(images, query).slice(0, 12) };
+  return { images: filterRelevantImages(images, filterQuery).slice(0, 12) };
 }
 
 router.get('/', async (req, res) => {

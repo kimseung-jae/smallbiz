@@ -5,7 +5,7 @@ const router = express.Router();
 
 // 구글 프로그래밍 가능 검색엔진(Custom Search JSON API)의 이미지 검색.
 // 네이버/다음 이미지 검색과 같은 성격(웹 전체 검색)이라 "실제 웹 이미지" 탭에 세 번째 소스로 추가.
-async function fetchGoogleImages(query) {
+async function fetchGoogleImages(query, filterQuery = query) {
   if (!process.env.GOOGLE_API_KEY || !process.env.GOOGLE_CSE_ID) return { needsApiKey: true, images: [] };
 
   const response = await axios.get('https://www.googleapis.com/customsearch/v1', {
@@ -29,7 +29,7 @@ async function fetchGoogleImages(query) {
     height: item.image?.height,
   }));
 
-  return { images: filterRelevantImages(images, query).slice(0, 12) };
+  return { images: filterRelevantImages(images, filterQuery).slice(0, 12) };
 }
 
 router.get('/', async (req, res) => {

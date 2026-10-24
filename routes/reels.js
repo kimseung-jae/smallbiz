@@ -14,9 +14,11 @@ const { serializeUpload } = require('../lib/requestQueue');
 const WIDTH = 720;
 const HEIGHT = 1280;
 const FPS = 30;
-// crf는 낮을수록 화질이 좋아지고(기본 23 -> 20), preset(인코딩 속도)은 그대로 유지하므로
-// Render 무료 서버의 CPU 부하는 거의 그대로면서 블록/뭉개짐이 눈에 띄게 줄어든다.
-const ENCODE_ARGS = ['-preset', 'veryfast', '-crf', '20', '-threads', '1'];
+// crf 20으로 낮춰봤다가(기본 23) 실제로 502/503이 재현돼서 되돌림 — 릴스 한 건에 ffmpeg를
+// 여러 번(컷마다 + xfade + 엔딩카드 + 최종 합성) 호출하는데, crf를 낮추면 그 전체에 걸쳐
+// 비트레이트/인코딩 부하가 같이 늘어나 Render 무료 서버(512MB RAM, 약한 CPU)에서 감당이 안 됐다.
+// 화질보다 "항상 만들어지는 것"이 더 중요하므로 기본값으로 복귀.
+const ENCODE_ARGS = ['-preset', 'veryfast', '-threads', '1'];
 // Render에 올라가는 ffmpeg-static 리눅스 바이너리는 drawtext 필터가 빠져있어서
 // ("No such filter: 'drawtext'") 자막을 sharp로 그린 투명 PNG를 overlay 필터로 합성한다.
 const MUSIC_DIR = path.join(__dirname, '..', 'music');

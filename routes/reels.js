@@ -79,12 +79,34 @@ function approxTextWidth(str, fontSize) {
   return width;
 }
 
+// 인스타 스토리/릴스 특유의 "맨 위 진행 바"(알약 모양 세그먼트, 현재 컷까지 채워짐) — 몇 번째
+// 컷인지 한눈에 보이게 해서 슬라이드쇼가 아니라 "스토리"처럼 보이게 하는 트렌드 요소.
+function buildProgressSegments(cutIndex, cutCount) {
+  if (!cutCount || cutCount < 2) return '';
+  const margin = 20;
+  const gap = 8;
+  const barHeight = 5;
+  const barY = 22;
+  const totalWidth = WIDTH - margin * 2;
+  const segWidth = (totalWidth - gap * (cutCount - 1)) / cutCount;
+
+  return Array.from({ length: cutCount }, (_, j) => {
+    const x = margin + j * (segWidth + gap);
+    const filled = j <= cutIndex;
+    return `<rect x="${x}" y="${barY}" width="${segWidth}" height="${barHeight}" rx="${barHeight / 2}" fill="#fff" opacity="${filled ? 0.95 : 0.3}" />`;
+  }).join('');
+}
+
 // 자막을 영상 크기(WIDTH x HEIGHT)와 같은 투명 PNG에 그려서 ffmpeg overlay 필터로 얹는다.
-// 요즘 릴스/쇼츠 자막 트렌드(굵은 폰트 + 문구별 컬러 칩, 화면 중하단 배치)를 따라
+// 요즘 릴스/쇼츠 자막 트렌드(굵은 폰트 + 문구별 컬러 칩, 화면 중하단 배치, 상단 진행 바)를 따라
 // 한 줄씩 개별 알약 모양 칩으로 그린다 — 큰 박스 하나에 다 몰아넣지 않는다.
-function buildCaptionOverlay(captionText) {
+function buildCaptionOverlay(captionText, { cutIndex, cutCount } = {}) {
   const lines = captionText.split('\n').filter(Boolean);
-  if (!lines.length) return null;
+  const progressBar = buildProgressSegments(cutIndex, cutCount);
+  if (!lines.length) {
+    if (!progressBar) return null;
+    return sharp(Buffer.from(`<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">${progressBar}</svg>`)).png().toBuffer();
+  }
 
   const fontSize = 46;
   const chipPaddingX = 28;
@@ -123,6 +145,7 @@ function buildCaptionOverlay(captionText) {
     </filter>
   </defs>
   ${chips}
+  ${progressBar}
 </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
@@ -282,22 +305,27 @@ module.exports = (upload) => {
         const isVideo = files[i].mimetype.startsWith('video/');
 
         // 컷별 자막(captions[i])이 있으면 이 컷을 만드는 단계에서 바로 구워 넣는다 —
-        // 그래야 뒤에서 xfade로 컷끼리 전환할 때 자막도 같이 자연스럽게 전환된다.
+        // 그래야 뒤에서 xfade로 컷끼리 전환할 때 자막도 같이 자연스럽게 전환된다. 자막 유무와
+        // 상관없이 컷이 여러 개면 상단 진행 바(스토리 느낌)는 항상 같이 그린다.
         let captionOverlayPath = null;
-        if (usePerCutCaptions) {
-          const cutCaptionText = wrapText(perCutCaptions[i] || '', 16);
-          const overlayBuffer = await buildCaptionOverlay(cutCaptionText);
+        if (usePerCutCaptions || files.length > 1) {
+          const cutCaptionText = usePerCutCaptions ? wrapText(perCutCaptions[i] || '', 16) : '';
+          const overlayBuffer = await buildCaptionOverlay(cutCaptionText, { cutIndex: i, cutCount: files.length });
           if (overlayBuffer) {
             captionOverlayPath = path.join(workDir, `cut_caption_${i}.png`);
             fs.writeFileSync(captionOverlayPath, overlayBuffer);
           }
         }
 
+        // eq로 살짝 쨍하게(채도/대비) 색보정 — 이미 하는 스케일/크롭 필터 체인에 얹는 것뿐이라
+        // 추가 인코딩 비용이 거의 없다. zoompan은 트렌드 숏폼처럼 더 또렷하게 체감되도록
+        // 속도/최대 배율을 올렸다(기존 0.0015→1.2배를 0.0025→1.3배로).
+        const colorGrade = 'eq=saturation=1.18:contrast=1.08:brightness=0.02';
         const baseFilter = isVideo
-          ? `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},fps=${FPS}`
+          ? `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},fps=${FPS},${colorGrade}`
           : (() => {
-              const zoomExpr = i % 2 === 0 ? 'min(zoom+0.0015,1.2)' : 'if(lte(zoom,1.0),1.2,max(1.0,zoom-0.0015))';
-              return `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='${zoomExpr}':d=${Math.round(FPS * clipSeconds)}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`;
+              const zoomExpr = i % 2 === 0 ? 'min(zoom+0.0025,1.3)' : 'if(lte(zoom,1.0),1.3,max(1.0,zoom-0.0025))';
+              return `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='${zoomExpr}':d=${Math.round(FPS * clipSeconds)}:s=${WIDTH}x${HEIGHT}:fps=${FPS},${colorGrade}`;
             })();
 
         const args = ['-y'];

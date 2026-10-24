@@ -24,9 +24,14 @@ const ENCODE_ARGS = ['-preset', 'veryfast', '-threads', '1'];
 const MUSIC_DIR = path.join(__dirname, '..', 'music');
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 
+// 호출 하나가 비정상적으로 오래 걸리면(끊긴 요청, 잘못된 입력 등) 강제 종료한다 — 안 그러면
+// 클라이언트/Render 게이트웨이는 이미 타임아웃돼서 떠났는데 ffmpeg 프로세스만 서버에 계속
+// 남아 메모리를 붙들고 있다가, 다음 요청들과 겹치면서 OOM으로 서버 전체가 죽는 걸 유발할 수 있다.
+const FFMPEG_TIMEOUT_MS = 60000;
+
 function run(args) {
   return new Promise((resolve, reject) => {
-    execFile(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 50 }, (err, stdout, stderr) => {
+    execFile(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 50, timeout: FFMPEG_TIMEOUT_MS, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
       if (err) {
         err.stderr = stderr;
         return reject(err);
@@ -333,6 +338,15 @@ module.exports = (upload) => {
       // 쓰면 슬라이드쇼 같은 인상이 강해서, 요즘 릴스/쇼츠에서 흔히 쓰는 전환들을 컷마다 돌아가며 섞는다.
       // xfade는 겹치는 구간만큼 전체 길이가 짧아지므로(클립 N개, 겹침 t초 → N*clipSeconds-(N-1)*t)
       // 최종 길이도 그에 맞춰 다시 계산해야 한다.
+      //
+      // 주의: 예전엔 ffmpeg 한 번에 N개 클립을 전부 입력으로 넣고 xfade N-1개를 filter_complex
+      // 하나에 체이닝했는데, 그러면 ffmpeg가 N개 스트림을 동시에 디코딩해야 해서 사진이 많을수록
+      // (6장 기준) 메모리 사용량이 그만큼 커졌다 — 실제로 Render 무료 서버(512MB)가 통째로
+      // OOM으로 죽어서 그 뒤 요청까지 503 나는 걸 직접 재현해서 확인했다. 그래서 두 클립씩만
+      // 입력받는 ffmpeg 호출을 N-1번 순차적으로 돌려서(이전 결과 + 다음 컷), 매 호출마다 동시에
+      // 디코딩되는 스트림이 항상 2개로 고정되게 바꿨다 — 사진 장수가 늘어도 메모리 사용량이
+      // 늘지 않는다. 호출 횟수는 늘어서 전체 시간은 조금 더 걸리지만(사용자가 감수하기로 함),
+      // 안정성이 훨씬 중요하다.
       const XFADE_DURATION = 0.4;
       const TRANSITIONS = ['fade', 'circleopen', 'zoomin', 'slideup', 'wiperight'];
       let baseVideoPath;
@@ -343,33 +357,31 @@ module.exports = (upload) => {
         baseVideoPath = clipPaths[0];
         totalDuration = clipDurations[0];
       } else {
-        const xfadeArgs = ['-y'];
-        for (const p of clipPaths) xfadeArgs.push('-i', p);
-
-        const filterParts = [];
-        let prevLabel = '0:v';
+        let accPath = clipPaths[0];
         totalDuration = clipDurations[0];
+
         for (let i = 1; i < clipPaths.length; i++) {
           const offset = totalDuration - XFADE_DURATION;
-          const outLabel = i === clipPaths.length - 1 ? 'xfinal' : `x${i}`;
           const transition = TRANSITIONS[(i - 1) % TRANSITIONS.length];
-          filterParts.push(`[${prevLabel}][${i}:v]xfade=transition=${transition}:duration=${XFADE_DURATION}:offset=${offset}[${outLabel}]`);
-          prevLabel = outLabel;
+          const stepOutPath = path.join(workDir, `xfade_step_${i}.mp4`);
+
+          await run([
+            '-y', '-i', accPath, '-i', clipPaths[i],
+            '-filter_complex', `[0:v][1:v]xfade=transition=${transition}:duration=${XFADE_DURATION}:offset=${offset}[v]`,
+            '-map', '[v]',
+            '-pix_fmt', 'yuv420p',
+            '-c:v', 'libx264', ...ENCODE_ARGS,
+            stepOutPath,
+          ]);
+
           // 엔딩 카드로 넘어가는 전환이 시작되는 시점 — 전체 영상용 자막(caption)은 이 시점부터
           // 꺼서 브랜드 엔딩 카드의 문구와 겹치지 않게 한다.
           if (hasEndCard && i === clipPaths.length - 1) captionCutoffTime = offset;
           totalDuration = offset + clipDurations[i];
+          accPath = stepOutPath;
         }
 
-        xfadeArgs.push(
-          '-filter_complex', filterParts.join(';'),
-          '-map', '[xfinal]',
-          '-pix_fmt', 'yuv420p',
-          '-c:v', 'libx264', ...ENCODE_ARGS,
-        );
-        baseVideoPath = path.join(workDir, 'xfade.mp4');
-        xfadeArgs.push(baseVideoPath);
-        await run(xfadeArgs);
+        baseVideoPath = accPath;
       }
 
       const outName = `reels-${Date.now()}.mp4`;

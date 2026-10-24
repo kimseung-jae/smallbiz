@@ -51,6 +51,44 @@ function textTspans(lines, x, lineHeight) {
     .join('');
 }
 
+// 부제(대표메뉴·강점)를 "24시간 숙성 | 직화 구이 | 매일 아침 손질" 처럼 한 줄에 다 몰아넣고
+// "|"로만 구분하면 가독성이 떨어지고 그냥 나열처럼 보인다 — 항목별로 분리된 알약 칩으로 바꿔서
+// 한눈에 구분되게 하고, 한 줄에 다 안 들어가면 자동으로 다음 줄로 넘긴다.
+function buildSubtextChips(items, { x, width, y, fontSize = 28, align = 'left' }) {
+  if (!items.length) return { svg: '', height: 0 };
+  const paddingX = 18;
+  const paddingY = 10;
+  const chipHeight = fontSize * 1.1 + paddingY * 2;
+  const gapX = 10;
+  const gapY = 12;
+
+  const rows = [[]];
+  let rowWidth = 0;
+  for (const item of items) {
+    const chipWidth = approxTextWidth(item, fontSize) + paddingX * 2;
+    if (rowWidth + chipWidth > width && rows[rows.length - 1].length) {
+      rows.push([]);
+      rowWidth = 0;
+    }
+    rows[rows.length - 1].push({ text: item, width: chipWidth });
+    rowWidth += chipWidth + gapX;
+  }
+
+  let svg = '';
+  let curY = y;
+  for (const row of rows) {
+    const rowWidthTotal = row.reduce((s, c) => s + c.width, 0) + gapX * (row.length - 1);
+    let curX = align === 'center' ? x + (width - rowWidthTotal) / 2 : x;
+    for (const chip of row) {
+      svg += `<rect x="${curX}" y="${curY}" width="${chip.width}" height="${chipHeight}" rx="${chipHeight / 2}" fill="rgba(255,255,255,0.16)" stroke="rgba(255,255,255,0.4)" stroke-width="1" />`;
+      svg += `<text x="${curX + chip.width / 2}" y="${curY + chipHeight / 2 + fontSize * 0.33}" font-size="${fontSize}" font-weight="700" fill="#fff" text-anchor="middle">${escapeXml(chip.text)}</text>`;
+      curX += chip.width + gapX;
+    }
+    curY += chipHeight + gapY;
+  }
+  return { svg, height: curY - y - gapY };
+}
+
 // 배지(가게명)/미터(주소)는 세 레이아웃 모두 동일하게 좌상단에 놓는다 — 템플릿마다 달라지는 건
 // 헤드라인/부제 텍스트 블록의 위치와 배경 처리뿐이다.
 function buildBadgeAndMeta({ storeName, address }) {
@@ -140,21 +178,23 @@ function svgFrame() {
 }
 
 // 템플릿 1: 하단정렬 (기존 레이아웃) — 헤드라인/부제가 사진 하단에 왼쪽 정렬로 깔린다.
-function buildBottomLayout({ storeName, address, headlineLines, headlineSize, subtextLines }) {
-  const subtextSize = 30;
-  const subtextLineHeight = subtextSize * 1.4;
+function buildBottomLayout({ storeName, address, headlineLines, headlineSize, subtextItems }) {
+  const subtextSize = 28;
   const headlineLineHeight = headlineSize * 1.18;
   const dividerGap = 26 + 20; // margin-top + margin-bottom around the 1px divider
+  const subtextBoxX = 56;
+  const subtextBoxWidth = WIDTH - 112;
 
   const headlineHeight = headlineLines.length * headlineLineHeight;
-  const subtextHeight = subtextLines.length ? subtextLines.length * subtextLineHeight : 0;
+  const subtextHeight = buildSubtextChips(subtextItems, { x: subtextBoxX, width: subtextBoxWidth, y: 0, fontSize: subtextSize }).height;
   const totalHeight = headlineHeight + dividerGap + subtextHeight;
 
   const textBlockBottom = HEIGHT - 74;
   const headlineTop = textBlockBottom - totalHeight;
   const headlineBaseline = headlineTop + headlineSize * 0.88;
   const dividerY = headlineTop + headlineHeight + 26;
-  const subtextBaseline = dividerY + 20 + subtextSize * 0.88;
+  const subtextY = dividerY + 20;
+  const subtextSvg = buildSubtextChips(subtextItems, { x: subtextBoxX, width: subtextBoxWidth, y: subtextY, fontSize: subtextSize }).svg;
 
   const { badgeSvg, metaSvg } = buildBadgeAndMeta({ storeName, address });
 
@@ -173,7 +213,7 @@ function buildBottomLayout({ storeName, address, headlineLines, headlineSize, su
 
   <line x1="56" y1="${dividerY}" x2="${WIDTH - 56}" y2="${dividerY}" stroke="url(#dividerGradient)" stroke-width="1" />
 
-  ${subtextLines.length ? `<text x="56" y="${subtextBaseline}" font-size="${subtextSize}" font-weight="500" fill="rgba(255,255,255,0.88)" filter="url(#textShadow)">${textTspans(subtextLines, 56, subtextLineHeight)}</text>` : ''}
+  ${subtextSvg}
 
   <rect x="0" y="${HEIGHT - 10}" width="${WIDTH}" height="10" fill="url(#barGradient)" />
 </svg>
@@ -181,21 +221,23 @@ function buildBottomLayout({ storeName, address, headlineLines, headlineSize, su
 }
 
 // 템플릿 2: 중앙정렬 — 헤드라인/부제가 사진 정중앙에 가운데 정렬로 놓인다.
-function buildCenterLayout({ storeName, address, headlineLines, headlineSize, subtextLines }) {
-  const subtextSize = 30;
-  const subtextLineHeight = subtextSize * 1.4;
+function buildCenterLayout({ storeName, address, headlineLines, headlineSize, subtextItems }) {
+  const subtextSize = 28;
   const headlineLineHeight = headlineSize * 1.18;
   const dividerGap = 26 + 20;
+  const subtextBoxWidth = WIDTH - 200;
+  const subtextBoxX = (WIDTH - subtextBoxWidth) / 2;
 
   const headlineHeight = headlineLines.length * headlineLineHeight;
-  const subtextHeight = subtextLines.length ? subtextLines.length * subtextLineHeight : 0;
+  const subtextHeight = buildSubtextChips(subtextItems, { x: subtextBoxX, width: subtextBoxWidth, y: 0, fontSize: subtextSize, align: 'center' }).height;
   const totalHeight = headlineHeight + dividerGap + subtextHeight;
 
   const centerX = WIDTH / 2;
   const headlineTop = (HEIGHT - totalHeight) / 2;
   const headlineBaseline = headlineTop + headlineSize * 0.88;
   const dividerY = headlineTop + headlineHeight + 26;
-  const subtextBaseline = dividerY + 20 + subtextSize * 0.88;
+  const subtextY = dividerY + 20;
+  const subtextSvg = buildSubtextChips(subtextItems, { x: subtextBoxX, width: subtextBoxWidth, y: subtextY, fontSize: subtextSize, align: 'center' }).svg;
   const dividerWidth = 140;
 
   const { badgeSvg, metaSvg } = buildBadgeAndMeta({ storeName, address });
@@ -215,7 +257,7 @@ function buildCenterLayout({ storeName, address, headlineLines, headlineSize, su
 
   <line x1="${centerX - dividerWidth / 2}" y1="${dividerY}" x2="${centerX + dividerWidth / 2}" y2="${dividerY}" stroke="url(#dividerGradient)" stroke-width="1" />
 
-  ${subtextLines.length ? `<text x="${centerX}" y="${subtextBaseline}" font-size="${subtextSize}" font-weight="500" fill="rgba(255,255,255,0.88)" text-anchor="middle" filter="url(#textShadow)">${textTspans(subtextLines, centerX, subtextLineHeight)}</text>` : ''}
+  ${subtextSvg}
 
   <rect x="0" y="${HEIGHT - 10}" width="${WIDTH}" height="10" fill="url(#barGradient)" />
 </svg>
@@ -224,16 +266,17 @@ function buildCenterLayout({ storeName, address, headlineLines, headlineSize, su
 
 // 템플릿 3: 상단 컬러띠 — 화면 위쪽에 불투명한 컬러 띠를 깔고 그 안에 헤드라인/부제를 넣어,
 // 사진 아래쪽은 가리지 않고 그대로 보여준다.
-function buildTopBandLayout({ storeName, address, headlineLines, headlineSize, subtextLines }) {
-  const subtextSize = 28;
-  const subtextLineHeight = subtextSize * 1.4;
+function buildTopBandLayout({ storeName, address, headlineLines, headlineSize, subtextItems }) {
+  const subtextSize = 26;
   const headlineLineHeight = headlineSize * 1.18;
   const dividerGap = 22 + 18;
   const bandPaddingTop = 54;
   const bandPaddingBottom = 40;
+  const subtextBoxX = 56;
+  const subtextBoxWidth = WIDTH - 112;
 
   const headlineHeight = headlineLines.length * headlineLineHeight;
-  const subtextHeight = subtextLines.length ? subtextLines.length * subtextLineHeight : 0;
+  const subtextHeight = buildSubtextChips(subtextItems, { x: subtextBoxX, width: subtextBoxWidth, y: 0, fontSize: subtextSize }).height;
   const textHeight = headlineHeight + dividerGap + subtextHeight;
 
   const badgeReserve = storeName ? 64 + 16 : 0;
@@ -242,7 +285,8 @@ function buildTopBandLayout({ storeName, address, headlineLines, headlineSize, s
   const headlineTop = bandPaddingTop + badgeReserve;
   const headlineBaseline = headlineTop + headlineSize * 0.88;
   const dividerY = headlineTop + headlineHeight + 22;
-  const subtextBaseline = dividerY + 18 + subtextSize * 0.88;
+  const subtextY = dividerY + 18;
+  const subtextSvg = buildSubtextChips(subtextItems, { x: subtextBoxX, width: subtextBoxWidth, y: subtextY, fontSize: subtextSize }).svg;
 
   const { badgeSvg } = buildBadgeAndMeta({ storeName, address: '' });
   // 주소는 띠 밖(사진 위, 띠 바로 아래)에 별도로 작게 표시한다 — 띠 안에 다 넣으면 너무 빽빽해진다.
@@ -267,7 +311,7 @@ function buildTopBandLayout({ storeName, address, headlineLines, headlineSize, s
 
   <line x1="56" y1="${dividerY}" x2="${WIDTH - 56}" y2="${dividerY}" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
 
-  ${subtextLines.length ? `<text x="56" y="${subtextBaseline}" font-size="${subtextSize}" font-weight="500" fill="rgba(255,255,255,0.75)">${textTspans(subtextLines, 56, subtextLineHeight)}</text>` : ''}
+  ${subtextSvg}
 </svg>
   `;
 }
@@ -319,7 +363,11 @@ module.exports = (upload) => {
       const headlineLines = wrapLines(headline, 12);
       const wrappedLength = headlineLines.join('').length;
       const headlineSize = wrappedLength > 20 ? 68 : wrappedLength > 12 ? 80 : 96;
-      const subtextLines = subtext && subtext.trim() ? wrapLines(subtext, 22) : [];
+      // "24시간 숙성 | 직화 구이 | 매일 아침 손질"처럼 " | "로 구분해서 오던 걸 항목별로 쪼갠다 —
+      // buildSubtextChips가 각 항목을 분리된 알약 칩으로 그린다. 구분자가 없으면 통째로 한 항목.
+      const subtextItems = subtext && subtext.trim()
+        ? subtext.split('|').map((s) => s.trim()).filter(Boolean)
+        : [];
 
       const overlaySvg = buildOverlaySvg({
         templateId: templateId || '',
@@ -327,7 +375,7 @@ module.exports = (upload) => {
         address: address || '',
         headlineLines,
         headlineSize,
-        subtextLines,
+        subtextItems,
       });
 
       // focusY(0~1)가 오면 사용자가 고른 세로 위치로 직접 크롭하고, 없으면 기존처럼

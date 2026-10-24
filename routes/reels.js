@@ -228,13 +228,21 @@ module.exports = (upload) => {
     }
   });
 
+  // 릴스는 사진마다 영상 인코딩 + xfade까지 같이 해야 해서 다른 기능(포스터/포토툰/카드뉴스,
+  // 전부 사진 합성만 함)보다 훨씬 무겁다. 5~6장으로 실제 테스트해보니 Render 무료 서버에서
+  // 메모리/시간 둘 다 감당이 안 돼서(자세한 경위는 아래 xfade 주석 참고), 업로드는 6장까지
+  // 받더라도 릴스에 실제로 쓰는 건 앞 4장까지만으로 제한한다 — 이 선에서는 안정적으로 확인됨.
+  const MAX_REELS_PHOTOS = 4;
+
   router.post('/', serializeUpload(upload.array('photos', 6), async (req, res) => {
     const { caption, mood, useSample, storeName, address } = req.body;
-    const files = useSample === 'true' ? getSampleFiles(4) : req.files;
+    const uploadedFiles = useSample === 'true' ? getSampleFiles(4) : req.files;
 
-    if (!files || files.length === 0) {
+    if (!uploadedFiles || uploadedFiles.length === 0) {
       return res.status(400).json({ error: '사진/영상을 최소 1개 이상 업로드해야 합니다.' });
     }
+    const files = uploadedFiles.slice(0, MAX_REELS_PHOTOS);
+    const trimmedCount = uploadedFiles.length - files.length;
 
     // captions[i]가 있으면 컷마다 다른 자막을 쓰고, 없으면 기존처럼 caption 하나를 전체 영상에 쓴다.
     let perCutCaptions = [];
@@ -339,14 +347,11 @@ module.exports = (upload) => {
       // xfade는 겹치는 구간만큼 전체 길이가 짧아지므로(클립 N개, 겹침 t초 → N*clipSeconds-(N-1)*t)
       // 최종 길이도 그에 맞춰 다시 계산해야 한다.
       //
-      // 주의: 예전엔 ffmpeg 한 번에 N개 클립을 전부 입력으로 넣고 xfade N-1개를 filter_complex
-      // 하나에 체이닝했는데, 그러면 ffmpeg가 N개 스트림을 동시에 디코딩해야 해서 사진이 많을수록
-      // (6장 기준) 메모리 사용량이 그만큼 커졌다 — 실제로 Render 무료 서버(512MB)가 통째로
-      // OOM으로 죽어서 그 뒤 요청까지 503 나는 걸 직접 재현해서 확인했다. 그래서 두 클립씩만
-      // 입력받는 ffmpeg 호출을 N-1번 순차적으로 돌려서(이전 결과 + 다음 컷), 매 호출마다 동시에
-      // 디코딩되는 스트림이 항상 2개로 고정되게 바꿨다 — 사진 장수가 늘어도 메모리 사용량이
-      // 늘지 않는다. 호출 횟수는 늘어서 전체 시간은 조금 더 걸리지만(사용자가 감수하기로 함),
-      // 안정성이 훨씬 중요하다.
+      // 주의: 두 클립씩만 순차적으로 합치는 방식(ffmpeg N-1번 호출)도 시도해봤는데, 메모리는
+      // 안정적이었지만 Render 무료 서버의 느린 CPU에서는 호출 횟수가 늘어난 만큼 전체 시간이
+      // 너무 길어져서(3장짜리도 60초 넘게 걸림) 오히려 더 안 좋았다 — 그래서 한 번의
+      // filter_complex로 처리하는 원래 방식으로 되돌리고, 그 대신 입력 사진 수 자체를
+      // MAX_PHOTOS로 제한해서 동시 디코딩 스트림 수(메모리)를 안전한 선에서 묶어둔다.
       const XFADE_DURATION = 0.4;
       const TRANSITIONS = ['fade', 'circleopen', 'zoomin', 'slideup', 'wiperight'];
       let baseVideoPath;
@@ -357,31 +362,33 @@ module.exports = (upload) => {
         baseVideoPath = clipPaths[0];
         totalDuration = clipDurations[0];
       } else {
-        let accPath = clipPaths[0];
-        totalDuration = clipDurations[0];
+        const xfadeArgs = ['-y'];
+        for (const p of clipPaths) xfadeArgs.push('-i', p);
 
+        const filterParts = [];
+        let prevLabel = '0:v';
+        totalDuration = clipDurations[0];
         for (let i = 1; i < clipPaths.length; i++) {
           const offset = totalDuration - XFADE_DURATION;
+          const outLabel = i === clipPaths.length - 1 ? 'xfinal' : `x${i}`;
           const transition = TRANSITIONS[(i - 1) % TRANSITIONS.length];
-          const stepOutPath = path.join(workDir, `xfade_step_${i}.mp4`);
-
-          await run([
-            '-y', '-i', accPath, '-i', clipPaths[i],
-            '-filter_complex', `[0:v][1:v]xfade=transition=${transition}:duration=${XFADE_DURATION}:offset=${offset}[v]`,
-            '-map', '[v]',
-            '-pix_fmt', 'yuv420p',
-            '-c:v', 'libx264', ...ENCODE_ARGS,
-            stepOutPath,
-          ]);
-
+          filterParts.push(`[${prevLabel}][${i}:v]xfade=transition=${transition}:duration=${XFADE_DURATION}:offset=${offset}[${outLabel}]`);
+          prevLabel = outLabel;
           // 엔딩 카드로 넘어가는 전환이 시작되는 시점 — 전체 영상용 자막(caption)은 이 시점부터
           // 꺼서 브랜드 엔딩 카드의 문구와 겹치지 않게 한다.
           if (hasEndCard && i === clipPaths.length - 1) captionCutoffTime = offset;
           totalDuration = offset + clipDurations[i];
-          accPath = stepOutPath;
         }
 
-        baseVideoPath = accPath;
+        xfadeArgs.push(
+          '-filter_complex', filterParts.join(';'),
+          '-map', '[xfinal]',
+          '-pix_fmt', 'yuv420p',
+          '-c:v', 'libx264', ...ENCODE_ARGS,
+        );
+        baseVideoPath = path.join(workDir, 'xfade.mp4');
+        xfadeArgs.push(baseVideoPath);
+        await run(xfadeArgs);
       }
 
       const outName = `reels-${Date.now()}.mp4`;
@@ -434,13 +441,19 @@ module.exports = (upload) => {
 
       await run(args);
 
-      res.json({ url: `/output/${outName}`, hasMusic: !!musicPath });
+      res.json({
+        url: `/output/${outName}`,
+        hasMusic: !!musicPath,
+        trimmedNote: trimmedCount > 0
+          ? `릴스는 서버 안정성을 위해 최대 ${MAX_REELS_PHOTOS}장까지만 사용돼요. 앞 ${MAX_REELS_PHOTOS}장으로 만들었어요.`
+          : null,
+      });
     } catch (err) {
       console.error('reels generation error:', err.message, err.stderr || '');
       res.status(500).json({ error: '릴스 생성 중 오류가 발생했습니다.', detail: err.stderr || err.message });
     } finally {
       fs.rmSync(workDir, { recursive: true, force: true });
-      for (const f of files) {
+      for (const f of uploadedFiles) {
         if (!f.isSample) fs.rm(f.path, { force: true }, () => {});
       }
     }

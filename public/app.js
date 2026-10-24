@@ -924,6 +924,7 @@ async function generateReels({ storeName, introText, caption, mood, address }) {
     if (!res.ok) throw new Error(data.error || '릴스 생성 실패');
 
     reelsArea.innerHTML = `
+      ${data.trimmedNote ? `<div class="blog-note">${data.trimmedNote}</div>` : ''}
       <video src="${data.url}" controls playsinline></video>
       <a class="download-link" href="${data.url}" download>릴스 다운로드</a>
     `;

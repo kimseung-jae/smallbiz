@@ -76,16 +76,18 @@ ${count > 1 ? '- 마지막 문구는 방문을 유도하는 한 줄\n' : ''}${co
 반드시 아래 JSON 형식으로만 응답하세요. 다른 설명은 붙이지 마세요.
 {"captions": ["...", "..."]}`;
 
+    // 프런트(fetchAutoCaptions)는 실패 시 이미 직접 입력한 소개글 기반 폴백으로 조용히 넘어가므로,
+    // AI 키 문제 등으로 실패해도 500 대신 빈 captions로 응답해 로그를 불필요하게 어지럽히지 않는다.
     try {
       const text = await callAI(prompt, 500);
       const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return res.status(502).json({ error: 'AI 응답을 파싱하지 못했습니다.' });
+      if (!jsonMatch) throw new Error('AI 응답을 파싱하지 못했습니다.');
       const parsed = JSON.parse(jsonMatch[0]);
       const captions = Array.isArray(parsed.captions) ? parsed.captions.slice(0, count) : [];
       res.json({ captions });
     } catch (err) {
-      console.error('card-news captions error:', err.message);
-      res.status(500).json({ error: '문구 생성 중 오류가 발생했습니다.', detail: err.message });
+      console.error('card-news captions error, falling back to empty:', err.message);
+      res.json({ captions: [] });
     }
   });
 

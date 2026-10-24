@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
 const { getSampleFiles } = require('./sampleMedia');
+const { serializeUpload } = require('../lib/requestQueue');
 
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 
@@ -285,7 +286,11 @@ function buildOverlaySvg({ templateId, ...rest }) {
 module.exports = (upload) => {
   const router = express.Router();
 
-  router.post('/', upload.single('photo'), async (req, res) => {
+  // 메인 "AI로 포스터·릴스 만들기" 버튼은 포스터와 릴스를 항상 동시에 요청한다. 포스터 자체는
+  // 가볍지만(sharp 합성뿐), 릴스는 ffmpeg 인코딩으로 무거워서 둘이 겹치면 Render 무료 서버에서
+  // 메모리를 같이 다투다 릴스 쪽이 502로 죽는 걸 실제로 재현해서 확인했다 — 포스터도 다른
+  // 무거운 라우트들과 같은 큐에 태워서 항상 하나씩만 처리되게 한다.
+  router.post('/', serializeUpload(upload.single('photo'), async (req, res) => {
     const { storeName, headline, subtext, address, templateId, focusY: focusYRaw, useSample } = req.body;
     const file = useSample === 'true' ? getSampleFiles(1)[0] : req.file;
 
@@ -368,7 +373,7 @@ module.exports = (upload) => {
     } finally {
       if (file && !file.isSample) fs.rm(file.path, { force: true }, () => {});
     }
-  });
+  }));
 
   return router;
 };

@@ -1,0 +1,37 @@
+{
+  "id": "before-after",
+  "name": "비포-애프터형",
+  "description": "훅 이후 '평범한 모습(BEFORE)'과 '매력 포인트(AFTER)'를 대비시켜 보여주는 포맷. 리모델링/신메뉴/변화를 강조하고 싶을 때, 또는 외관-내부나 재료-완성품처럼 대비되는 사진 두 묶음이 있을 때 적합.",
+  "segments": [
+    {
+      "id": "hook",
+      "type": "hook",
+      "duration": 1.5,
+      "transition": "fade",
+      "caption": { "maxChars": 12, "position": "center", "fontSize": 64 }
+    },
+    {
+      "id": "before",
+      "type": "photo-cuts",
+      "duration": 4,
+      "cutCount": { "min": 1, "max": 2 },
+      "transition": "wiperight",
+      "caption": { "maxChars": 14, "position": "top", "fontSize": 42, "label": "BEFORE" }
+    },
+    {
+      "id": "after",
+      "type": "photo-cuts",
+      "duration": 5.5,
+      "cutCount": { "min": 1, "max": 2 },
+      "transition": "circleopen",
+      "caption": { "maxChars": 14, "position": "bottom", "fontSize": 46, "label": "AFTER" }
+    },
+    {
+      "id": "ending",
+      "type": "endcard",
+      "duration": 3.5,
+      "transition": "zoomin",
+      "endCard": { "showAddress": true, "cta": "지금 바로 방문해보세요" }
+    }
+  ]
+}

@@ -6,8 +6,8 @@ const { execFile } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
 const sharp = require('sharp');
 const { getSampleFiles } = require('./sampleMedia');
-const { restyleImageAsAnimation, callAI, hasAIKey } = require('../lib/aiClient');
 const { serializeUpload } = require('../lib/requestQueue');
+const { pickFormatAndCaptions } = require('../lib/reelsFormat');
 
 // Render 무료 플랜(RAM 512MB)에서 1080x1920은 물론 720x1280도 "Ran out of memory (used over
 // 512MB)"로 인스턴스가 죽는 걸 이벤트 로그로 직접 확인했다 — 한 단계 더 낮춰서 여유를 둔다.
@@ -29,6 +29,9 @@ const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 // 클라이언트/Render 게이트웨이는 이미 타임아웃돼서 떠났는데 ffmpeg 프로세스만 서버에 계속
 // 남아 메모리를 붙들고 있다가, 다음 요청들과 겹치면서 OOM으로 서버 전체가 죽는 걸 유발할 수 있다.
 const FFMPEG_TIMEOUT_MS = 60000;
+// xfade는 겹치는 구간만큼 전체 길이가 짧아진다(클립 N개, 겹침 t초 → N개 합쳐지며 (N-1)*t만큼 감소).
+// 포맷 JSON의 구간 길이는 이 감소분까지 감안해서 최종 길이가 12~15초에 들어오도록 잡혀 있다.
+const XFADE_DURATION = 0.4;
 
 function run(args) {
   return new Promise((resolve, reject) => {
@@ -48,27 +51,11 @@ function stripEmoji(text) {
   return text.replace(/\p{Extended_Pictographic}/gu, '').replace(/[ \t]{2,}/g, ' ');
 }
 
-function wrapText(text, maxChars = 16) {
-  const words = stripEmoji(text).replace(/\r/g, '').split(/\s+/).filter(Boolean);
-  const lines = [];
-  let current = '';
-  for (const word of words) {
-    if ((current + ' ' + word).trim().length > maxChars && current) {
-      lines.push(current.trim());
-      current = word;
-    } else {
-      current = (current + ' ' + word).trim();
-    }
-  }
-  if (current) lines.push(current.trim());
-  return lines.join('\n');
-}
-
 function escapeXml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// 폰트별 고정폭이 아니라서 대략치 — 한글/전각 문자는 넓게, 영문/숫자는 좁게 잡아 칩 너비를 추정한다.
+// 폰트별 고정폭이 아니라서 대략치 — 한글/전각 문자는 넓게, 영문/숫자는 좁게 잡아 텍스트 너비를 추정한다.
 function approxTextWidth(str, fontSize) {
   let width = 0;
   for (const ch of String(str)) {
@@ -79,8 +66,18 @@ function approxTextWidth(str, fontSize) {
   return width;
 }
 
-// 인스타 스토리/릴스 특유의 "맨 위 진행 바"(알약 모양 세그먼트, 현재 컷까지 채워짐) — 몇 번째
-// 컷인지 한눈에 보이게 해서 슬라이드쇼가 아니라 "스토리"처럼 보이게 하는 트렌드 요소.
+// AI가 글자 수 제한을 살짝 넘기거나, 공백 없이 긴 한글 단어 하나로 와도 화면 밖으로 잘리거나
+// 칩 밖으로 삐져나오지 않도록 폰트 크기를 줄여서 항상 maxWidth 안에 들어오게 만든다.
+function fitFontSize(text, baseFontSize, maxWidth, minFontSize = 22) {
+  let fontSize = baseFontSize;
+  while (fontSize > minFontSize && approxTextWidth(text, fontSize) > maxWidth) {
+    fontSize -= 2;
+  }
+  return fontSize;
+}
+
+// 인스타 스토리/릴스 특유의 "맨 위 진행 바"(알약 모양 세그먼트, 현재 컷까지 채워짐) — 지금
+// 구간(segment) 안에서 몇 번째 컷인지 한눈에 보이게 해서 슬라이드쇼가 아니라 "스토리"처럼 보이게 한다.
 function buildProgressSegments(cutIndex, cutCount) {
   if (!cutCount || cutCount < 2) return '';
   const margin = 20;
@@ -98,37 +95,32 @@ function buildProgressSegments(cutIndex, cutCount) {
 }
 
 // 자막을 영상 크기(WIDTH x HEIGHT)와 같은 투명 PNG에 그려서 ffmpeg overlay 필터로 얹는다.
-// 요즘 릴스/쇼츠 자막 트렌드(굵은 폰트 + 문구별 컬러 칩, 화면 중하단 배치, 상단 진행 바)를 따라
-// 한 줄씩 개별 알약 모양 칩으로 그린다 — 큰 박스 하나에 다 몰아넣지 않는다.
-function buildCaptionOverlay(captionText, { cutIndex, cutCount } = {}) {
-  const lines = captionText.split('\n').filter(Boolean);
+// 포맷(JSON)이 지정한 위치(top/center/bottom)·글자 크기로 알약 모양 칩 하나를 그린다. 긴 텍스트는
+// fitFontSize로 미리 줄여 받으므로 칩/화면 밖으로 잘리거나 겹치는 일이 없다.
+function buildCaptionOverlay(rawText, { cutIndex, cutCount, position = 'bottom', fontSize = 46, label } = {}) {
+  const text = stripEmoji(String(rawText || '')).trim();
   const progressBar = buildProgressSegments(cutIndex, cutCount);
-  if (!lines.length) {
+  if (!text) {
     if (!progressBar) return null;
     return sharp(Buffer.from(`<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">${progressBar}</svg>`)).png().toBuffer();
   }
 
-  const fontSize = 46;
   const chipPaddingX = 28;
-  const chipPaddingY = 16;
-  const chipHeight = fontSize * 1.15 + chipPaddingY * 2;
-  const lineGap = 14;
-  const totalHeight = lines.length * chipHeight + (lines.length - 1) * lineGap;
-  // 화면 맨 아래가 아니라 중하단(위에서 약 62~72% 지점)에 오도록 — 트렌드 캡션 배치와 동일
-  const startY = HEIGHT * 0.62 - totalHeight / 2;
+  const maxWidth = WIDTH - 60 - chipPaddingX * 2;
+  const fitted = fitFontSize(text, fontSize, maxWidth);
+  const chipPaddingY = Math.round(fitted * 0.35);
+  const chipHeight = fitted * 1.15 + chipPaddingY * 2;
+  const chipWidth = Math.min(WIDTH - 60, approxTextWidth(text, fitted) + chipPaddingX * 2);
+  const chipX = (WIDTH - chipWidth) / 2;
 
-  const chips = lines
-    .map((line, i) => {
-      const chipWidth = Math.min(WIDTH - 60, approxTextWidth(line, fontSize) * 1.05 + chipPaddingX * 2);
-      const chipX = (WIDTH - chipWidth) / 2;
-      const chipY = startY + i * (chipHeight + lineGap);
-      const textBaseline = chipY + chipHeight / 2 + fontSize * 0.33;
-      return `
-        <rect x="${chipX}" y="${chipY}" width="${chipWidth}" height="${chipHeight}" rx="${chipHeight / 2}" fill="url(#chipGradient)" filter="url(#chipShadow)" />
-        <text x="${WIDTH / 2}" y="${textBaseline}" font-size="${fontSize}" font-weight="800" letter-spacing="-0.5" fill="#14161a" text-anchor="middle">${escapeXml(line)}</text>
-      `;
-    })
-    .join('');
+  // 트렌드 캡션 배치: bottom은 화면 중하단(약 62% 지점), top은 상단 진행 바 아래, center는 정중앙.
+  const anchorY = position === 'top' ? HEIGHT * 0.17 : position === 'center' ? HEIGHT * 0.5 : HEIGHT * 0.62;
+  const chipY = anchorY - chipHeight / 2;
+  const textBaseline = chipY + chipHeight / 2 + fitted * 0.33;
+
+  const labelSvg = label
+    ? `<text x="${WIDTH / 2}" y="${chipY - 16}" font-size="26" font-weight="800" letter-spacing="2" fill="#ffd23f" text-anchor="middle">${escapeXml(label)}</text>`
+    : '';
 
   const svg = `
 <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -144,24 +136,73 @@ function buildCaptionOverlay(captionText, { cutIndex, cutCount } = {}) {
       <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.35" />
     </filter>
   </defs>
-  ${chips}
+  ${labelSvg}
+  <rect x="${chipX}" y="${chipY}" width="${chipWidth}" height="${chipHeight}" rx="${chipHeight / 2}" fill="url(#chipGradient)" filter="url(#chipShadow)" />
+  <text x="${WIDTH / 2}" y="${textBaseline}" font-size="${fitted}" font-weight="800" letter-spacing="-0.5" fill="#14161a" text-anchor="middle">${escapeXml(text)}</text>
   ${progressBar}
 </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-// 마지막에 붙는 브랜드 엔딩 카드 — 가게명/주소와 함께 "방문 유도" 문구를 넣어 영상이 그냥
-// 사진 슬라이드쇼가 아니라 실제 홍보 영상처럼 마무리되게 한다. drawtext가 없는 환경이라
-// 포스터/자막과 동일하게 sharp로 그린 PNG를 한 장의 "컷"으로 취급해 나머지 컷들과 함께 xfade한다.
-function buildEndCard({ storeName, address }) {
+// 훅 구간(0~1.5초) 전용 카드 — 사진 없이 큰 글씨 한 줄(또는 공백 없는 긴 단어라면 두 줄)로 시선을
+// 붙잡는다. 화면 폭을 넘는 길이면 fitFontSize로 줄이고, 그래도 넘치면 가운데에서 두 줄로 쪼갠다.
+function buildHookCard(rawText, { fontSize = 64 } = {}) {
+  const text = stripEmoji(String(rawText || '')).trim();
+  const maxWidth = WIDTH - 80;
+  let fitted = fitFontSize(text, fontSize, maxWidth, 34);
+  let lines = [text];
+  if (approxTextWidth(text, fitted) > maxWidth && text.length > 1) {
+    const mid = Math.ceil(text.length / 2);
+    lines = [text.slice(0, mid), text.slice(mid)];
+    const longest = lines.reduce((a, b) => (a.length >= b.length ? a : b), '');
+    fitted = fitFontSize(longest, fontSize, maxWidth, 28);
+  }
+
   const centerX = WIDTH / 2;
-  const nameSize = 54;
+  const centerY = HEIGHT * 0.46;
+  const lineHeight = fitted * 1.2;
+  const totalHeight = lines.length * lineHeight;
+  const firstBaseline = centerY - totalHeight / 2 + fitted * 0.85;
+  const textSvg = lines
+    .map((line, i) => `<text x="${centerX}" y="${firstBaseline + i * lineHeight}" font-size="${fitted}" font-weight="800" letter-spacing="-1" fill="#fff" text-anchor="middle">${escapeXml(line)}</text>`)
+    .join('');
+  const accentY = centerY - totalHeight / 2 - 28;
+
+  const svg = `
+<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      text { font-family: 'Noto Sans KR', sans-serif; }
+    </style>
+    <linearGradient id="hookBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1b1d22" />
+      <stop offset="100%" stop-color="#101114" />
+    </linearGradient>
+    <linearGradient id="hookAccent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffd23f" />
+      <stop offset="100%" stop-color="#ff8a3d" />
+    </linearGradient>
+  </defs>
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#hookBg)" />
+  <rect x="${centerX - 70}" y="${accentY}" width="140" height="5" rx="2.5" fill="url(#hookAccent)" />
+  ${textSvg}
+</svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// 마지막에 붙는 브랜드 엔딩 카드 — 가게명/주소와 함께 포맷이 지정한 CTA 문구를 넣어 영상이
+// 그냥 사진 슬라이드쇼가 아니라 실제 홍보 영상처럼 마무리되게 한다. drawtext가 없는 환경이라
+// 포스터/자막과 동일하게 sharp로 그린 PNG를 한 장의 "컷"으로 취급해 나머지 컷들과 함께 xfade한다.
+function buildEndCard({ storeName, address, cta }) {
+  const centerX = WIDTH / 2;
+  const nameMaxWidth = WIDTH - 100;
+  const nameSize = fitFontSize(storeName || '', 54, nameMaxWidth, 30);
   const addressSize = 26;
   const ctaSize = 32;
 
-  const ctaText = '📍 지금 바로 방문해보세요';
-  const ctaLabel = escapeXml(stripEmoji(ctaText).trim());
+  const ctaLabel = escapeXml(stripEmoji(cta || '').trim());
   const ctaChipWidth = Math.min(WIDTH - 100, approxTextWidth(ctaLabel, ctaSize) * 1.05 + 64);
   const ctaChipHeight = ctaSize * 1.15 + 36;
   const ctaChipY = HEIGHT * 0.66;
@@ -207,50 +248,65 @@ function pickMusic(mood) {
   return path.join(MUSIC_DIR, pool[Math.floor(Math.random() * pool.length)]);
 }
 
+// 업로드된 사진 풀에서 포맷의 각 photo-cuts 구간에 쓸 사진을 나눠 배정한다. 전체 구간에 걸쳐
+// 순환 커서를 하나만 써서, 사진이 충분하면(before-after처럼 구간이 여러 개여도) 구간마다 다른
+// 사진이 가고, 부족하면 자연스럽게 앞에서부터 반복된다.
+function selectPhotosForSegments(files, format, cutCounts) {
+  const assignment = {};
+  let cursor = 0;
+  for (const seg of format.segments) {
+    if (seg.type !== 'photo-cuts') continue;
+    const n = cutCounts[seg.id];
+    assignment[seg.id] = Array.from({ length: n }, () => {
+      const file = files[cursor % files.length];
+      cursor += 1;
+      return file;
+    });
+  }
+  return assignment;
+}
+
+// 포맷 정의 + 채워진 문구 + 사진 배정을 실제 ffmpeg 호출 순서(클립 하나하나)로 펼친다.
+function buildClipSpecs(format, captions, cutCounts, photoAssignment, { storeName, address }) {
+  const specs = [];
+  for (const seg of format.segments) {
+    if (seg.type === 'hook') {
+      specs.push({ kind: 'hook', duration: seg.duration, transition: seg.transition, text: captions[seg.id], captionCfg: seg.caption });
+    } else if (seg.type === 'photo-cuts') {
+      const n = cutCounts[seg.id];
+      const perClipDuration = seg.duration / n;
+      const photos = photoAssignment[seg.id];
+      const segCaptions = captions[seg.id] || [];
+      for (let i = 0; i < n; i++) {
+        specs.push({
+          kind: 'photo',
+          duration: perClipDuration,
+          transition: seg.transition,
+          file: photos[i],
+          text: segCaptions[i],
+          captionCfg: seg.caption,
+          cutIndex: i,
+          cutCount: n,
+        });
+      }
+    } else if (seg.type === 'endcard') {
+      // 엔딩 카드는 가게명이 있어야 의미가 있다(주소/CTA가 가게명 없이는 어색하다) — 없으면 통째로 생략.
+      if (!storeName || !storeName.trim()) continue;
+      specs.push({
+        kind: 'endcard',
+        duration: seg.duration,
+        transition: seg.transition,
+        storeName: storeName.trim(),
+        address: (address || '').trim(),
+        cta: seg.endCard.cta,
+      });
+    }
+  }
+  return specs;
+}
+
 module.exports = (upload) => {
   const router = express.Router();
-
-  // 컷마다 다른 자막이 자동으로 채워지도록, 가게명/업종/한줄소개로 컷 수만큼 짧은 자막을 만들어주는 엔드포인트.
-  // 메인 생성 흐름에서 사용자가 아무것도 입력하지 않아도 조용히 호출된다 — 키가 없거나 실패하면
-  // 호출부가 기존처럼 caption 하나로 통일해서 쓰도록 필요한 정보만 응답한다.
-  router.post('/captions', async (req, res) => {
-    const { storeName, category, features, cutCount } = req.body;
-    const count = Math.max(1, Math.min(6, Number(cutCount) || 1));
-
-    if (!storeName) {
-      return res.status(400).json({ error: '매장명이 필요합니다.' });
-    }
-    if (!hasAIKey()) {
-      return res.json({ needsApiKey: true });
-    }
-
-    const prompt = `당신은 대기업 광고 캠페인을 다뤄온 15년 차 카피라이터입니다. 지금은 동네 소상공인 사장님의 홍보 릴스(짧은 세로 영상) 자막을 써주고 있습니다.
-가게명: ${storeName}
-업종/특징: ${category || ''} ${features || ''}
-
-이 릴스는 총 ${count}컷이고, 영상 마지막에는 가게명·주소와 함께 "지금 바로 방문해보세요" 문구가 담긴 브랜드 엔딩 카드가 자동으로 따로 붙습니다. 그러니 여기서 만드는 자막에는 "방문하세요/오세요" 같은 직접적인 CTA를 넣지 말고, 그 앞까지 시선을 사로잡는 역할만 하면 됩니다.
-각 컷에 들어갈 짧은 자막을 정확히 ${count}개 만들어주세요.
-- 각 자막은 16자 이내로 짧고 강렬하게. 진부한 표현("정성을 다해", "고객님을 위해") 대신 구체적이고 생생한 표현을 쓰세요.
-- 설명조가 아니라 광고 카피처럼 감각적으로 — 궁금증을 자극하는 후킹, 오감이 느껴지는 묘사, 숫자/디테일을 활용하세요.
-- 순서대로 (시선을 끄는 후킹) → (메뉴/특징의 매력 포인트) → (여운을 남기는 한 줄) 흐름이 되게
-
-반드시 아래 JSON 형식으로만 응답하세요. 다른 설명은 붙이지 마세요.
-{"captions": ["...", "..."]}`;
-
-    try {
-      const text = await callAI(prompt, 500);
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('AI 응답을 파싱하지 못했습니다.');
-      const parsed = JSON.parse(jsonMatch[0]);
-      const captions = Array.isArray(parsed.captions) ? parsed.captions.slice(0, count) : [];
-      res.json({ captions });
-    } catch (err) {
-      // 프런트(fetchAutoCaptions)는 실패 시 이미 caption 하나로 통일해서 쓰는 폴백으로 조용히
-      // 넘어가므로, AI 키 문제 등으로 실패해도 500 대신 빈 captions로 응답해 로그를 어지럽히지 않는다.
-      console.error('reels captions error, falling back to empty:', err.message);
-      res.json({ captions: [] });
-    }
-  });
 
   // 릴스는 사진마다 영상 인코딩 + xfade까지 같이 해야 해서 다른 기능(포스터/포토툰/카드뉴스,
   // 전부 사진 합성만 함)보다 훨씬 무겁다. 5~6장으로 실제 테스트해보니 Render 무료 서버에서
@@ -258,136 +314,101 @@ module.exports = (upload) => {
   // 받더라도 릴스에 실제로 쓰는 건 앞 4장까지만으로 제한한다 — 이 선에서는 안정적으로 확인됨.
   const MAX_REELS_PHOTOS = 4;
 
-  router.post('/', serializeUpload(upload.array('photos', 6), async (req, res) => {
-    const { caption, mood, useSample, storeName, address } = req.body;
-    const uploadedFiles = useSample === 'true' ? getSampleFiles(4) : req.files;
-
-    if (!uploadedFiles || uploadedFiles.length === 0) {
-      return res.status(400).json({ error: '사진/영상을 최소 1개 이상 업로드해야 합니다.' });
-    }
-    const files = uploadedFiles.slice(0, MAX_REELS_PHOTOS);
-    const trimmedCount = uploadedFiles.length - files.length;
-
-    // captions[i]가 있으면 컷마다 다른 자막을 쓰고, 없으면 기존처럼 caption 하나를 전체 영상에 쓴다.
-    let perCutCaptions = [];
-    try {
-      perCutCaptions = JSON.parse(req.body.captions || '[]');
-    } catch {
-      perCutCaptions = [];
-    }
-    const usePerCutCaptions = Array.isArray(perCutCaptions) && perCutCaptions.some((c) => c && c.trim());
-
-    // 사진이 1장이면 3초, 6장이면 18초로 들쭉날쭉하던 것을 사진 장수에 맞춰 컷 길이를 2~4초 사이에서
-    // 자동으로 정해서 전체 길이가 대략 12~15초 안에 들어오게 맞춘다.
-    const clipSeconds = Math.min(4, Math.max(2, 15 / files.length));
+  // 포맷 템플릿(JSON) + 채워진 문구 + 사진들을 받아 실제 mp4 파일을 만든다. 라우트 핸들러와
+  // (AI 호출 없이 포맷을 직접 지정해서 돌리는) 테스트 스크립트가 공유해서 쓴다.
+  async function generateReelsVideo({ files, storeName, address, mood, formatResult }) {
+    const { format, captions, cutCounts, formatId } = formatResult;
+    const photoAssignment = selectPhotosForSegments(files, format, cutCounts);
+    const specs = buildClipSpecs(format, captions, cutCounts, photoAssignment, { storeName, address });
 
     const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reels-'));
     const clipPaths = [];
+    const clipDurations = [];
 
     try {
-      // 사진은 AI로 따뜻한 애니메이션/일러스트 느낌으로 다시 그려서 쓸 수도 있지만(restyleImageAsAnimation),
-      // 릴스는 이미 사진마다 영상 인코딩(zoompan/xfade)까지 같이 하기 때문에 AI 변환(사진당 수십 초)까지
-      // 더해지면 Render 무료 서버 사양을 넘어서 502로 죽는 걸 실제로 확인했다 — 릴스는 신뢰성이 더
-      // 중요하므로 꺼둔다. AI 그림체 변환은 영상 인코딩이 없는 "AI 일러스트 만화" 쪽에서만 쓴다.
-      const shouldAnimate = false;
-      const sourcePaths = await Promise.all(files.map(async (file, i) => {
-        if (!shouldAnimate || !file.mimetype.startsWith('image/')) return file.path;
-        const restyled = await restyleImageAsAnimation(fs.readFileSync(file.path), file.mimetype);
-        if (!restyled) return file.path;
-        const animatedPath = path.join(workDir, `animated_${i}.png`);
-        fs.writeFileSync(animatedPath, restyled);
-        return animatedPath;
-      }));
+      for (let idx = 0; idx < specs.length; idx++) {
+        const spec = specs[idx];
+        const clipPath = path.join(workDir, `clip_${idx}.mp4`);
 
-      for (let i = 0; i < files.length; i++) {
-        const clipPath = path.join(workDir, `clip_${i}.mp4`);
-        const sourcePath = sourcePaths[i];
-        const isVideo = files[i].mimetype.startsWith('video/');
+        if (spec.kind === 'hook') {
+          const pngPath = path.join(workDir, `hook_${idx}.png`);
+          fs.writeFileSync(pngPath, await buildHookCard(spec.text, { fontSize: spec.captionCfg.fontSize }));
+          const zoomExpr = 'min(zoom+0.0012,1.06)';
+          await run([
+            '-y', '-loop', '1', '-i', pngPath,
+            '-t', String(spec.duration),
+            '-vf', `zoompan=z='${zoomExpr}':d=${Math.round(FPS * spec.duration)}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`,
+            '-an', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', ...ENCODE_ARGS,
+            clipPath,
+          ]);
+        } else if (spec.kind === 'endcard') {
+          const pngPath = path.join(workDir, `endcard_${idx}.png`);
+          fs.writeFileSync(pngPath, await buildEndCard({ storeName: spec.storeName, address: spec.address, cta: spec.cta }));
+          const zoomExpr = 'min(zoom+0.0012,1.08)';
+          await run([
+            '-y', '-loop', '1', '-i', pngPath,
+            '-t', String(spec.duration),
+            '-vf', `zoompan=z='${zoomExpr}':d=${Math.round(FPS * spec.duration)}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`,
+            '-an', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', ...ENCODE_ARGS,
+            clipPath,
+          ]);
+        } else {
+          const file = spec.file;
+          const isVideo = file.mimetype.startsWith('video/');
 
-        // 컷별 자막(captions[i])이 있으면 이 컷을 만드는 단계에서 바로 구워 넣는다 —
-        // 그래야 뒤에서 xfade로 컷끼리 전환할 때 자막도 같이 자연스럽게 전환된다. 자막 유무와
-        // 상관없이 컷이 여러 개면 상단 진행 바(스토리 느낌)는 항상 같이 그린다.
-        let captionOverlayPath = null;
-        if (usePerCutCaptions || files.length > 1) {
-          const cutCaptionText = usePerCutCaptions ? wrapText(perCutCaptions[i] || '', 16) : '';
-          const overlayBuffer = await buildCaptionOverlay(cutCaptionText, { cutIndex: i, cutCount: files.length });
+          const overlayBuffer = await buildCaptionOverlay(spec.text, {
+            cutIndex: spec.cutIndex,
+            cutCount: spec.cutCount,
+            position: spec.captionCfg.position,
+            fontSize: spec.captionCfg.fontSize,
+            label: spec.captionCfg.label,
+          });
+          let captionOverlayPath = null;
           if (overlayBuffer) {
-            captionOverlayPath = path.join(workDir, `cut_caption_${i}.png`);
+            captionOverlayPath = path.join(workDir, `caption_${idx}.png`);
             fs.writeFileSync(captionOverlayPath, overlayBuffer);
           }
+
+          // eq로 살짝 쨍하게(채도/대비) 색보정 — 이미 하는 스케일/크롭 필터 체인에 얹는 것뿐이라
+          // 추가 인코딩 비용이 거의 없다.
+          const colorGrade = 'eq=saturation=1.18:contrast=1.08:brightness=0.02';
+          const baseFilter = isVideo
+            ? `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},fps=${FPS},${colorGrade}`
+            : (() => {
+                const zoomExpr = idx % 2 === 0 ? 'min(zoom+0.0025,1.3)' : 'if(lte(zoom,1.0),1.3,max(1.0,zoom-0.0025))';
+                return `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='${zoomExpr}':d=${Math.round(FPS * spec.duration)}:s=${WIDTH}x${HEIGHT}:fps=${FPS},${colorGrade}`;
+              })();
+
+          const args = ['-y'];
+          if (isVideo) {
+            args.push('-i', file.path);
+          } else {
+            args.push('-loop', '1', '-i', file.path);
+          }
+          if (captionOverlayPath) args.push('-i', captionOverlayPath);
+          args.push('-t', String(spec.duration));
+          if (captionOverlayPath) {
+            args.push('-filter_complex', `[0:v]${baseFilter}[base];[base][1:v]overlay=0:0[v]`, '-map', '[v]');
+          } else {
+            args.push('-vf', baseFilter, '-map', '0:v');
+          }
+          args.push('-an', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', ...ENCODE_ARGS, clipPath);
+
+          await run(args);
         }
 
-        // eq로 살짝 쨍하게(채도/대비) 색보정 — 이미 하는 스케일/크롭 필터 체인에 얹는 것뿐이라
-        // 추가 인코딩 비용이 거의 없다. zoompan은 트렌드 숏폼처럼 더 또렷하게 체감되도록
-        // 속도/최대 배율을 올렸다(기존 0.0015→1.2배를 0.0025→1.3배로).
-        const colorGrade = 'eq=saturation=1.18:contrast=1.08:brightness=0.02';
-        const baseFilter = isVideo
-          ? `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},fps=${FPS},${colorGrade}`
-          : (() => {
-              const zoomExpr = i % 2 === 0 ? 'min(zoom+0.0025,1.3)' : 'if(lte(zoom,1.0),1.3,max(1.0,zoom-0.0025))';
-              return `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='${zoomExpr}':d=${Math.round(FPS * clipSeconds)}:s=${WIDTH}x${HEIGHT}:fps=${FPS},${colorGrade}`;
-            })();
-
-        const args = ['-y'];
-        if (isVideo) {
-          args.push('-i', sourcePath);
-        } else {
-          args.push('-loop', '1', '-i', sourcePath);
-        }
-        if (captionOverlayPath) args.push('-i', captionOverlayPath);
-        args.push('-t', String(clipSeconds));
-        if (captionOverlayPath) {
-          args.push('-filter_complex', `[0:v]${baseFilter}[base];[base][1:v]overlay=0:0[v]`, '-map', '[v]');
-        } else {
-          args.push('-vf', baseFilter, '-map', '0:v');
-        }
-        args.push('-an', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', ...ENCODE_ARGS, clipPath);
-
-        await run(args);
         clipPaths.push(clipPath);
+        clipDurations.push(spec.duration);
       }
 
-      const clipDurations = clipPaths.map(() => clipSeconds);
-      let hasEndCard = false;
-
-      // 영상이 사진 슬라이드쇼로 뚝 끝나지 않고 실제 홍보 영상처럼 마무리되도록, 가게명/주소 +
-      // 방문 유도 문구가 담긴 브랜드 엔딩 카드를 마지막 컷으로 붙인다.
-      if (storeName && storeName.trim()) {
-        hasEndCard = true;
-        const ctaSeconds = 2.2;
-        const endCardPngPath = path.join(workDir, 'end_card.png');
-        fs.writeFileSync(endCardPngPath, await buildEndCard({ storeName: storeName.trim(), address: (address || '').trim() }));
-
-        const endClipPath = path.join(workDir, 'clip_endcard.mp4');
-        const zoomExpr = 'min(zoom+0.0012,1.08)';
-        await run([
-          '-y', '-loop', '1', '-i', endCardPngPath,
-          '-t', String(ctaSeconds),
-          '-vf', `zoompan=z='${zoomExpr}':d=${Math.round(FPS * ctaSeconds)}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`,
-          '-an', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', ...ENCODE_ARGS,
-          endClipPath,
-        ]);
-        clipPaths.push(endClipPath);
-        clipDurations.push(ctaSeconds);
-      }
-
-      // 컷끼리 뚝뚝 끊기지 않도록 concat 대신 xfade로 크로스페이드 전환을 준다. 매번 같은 fade만
-      // 쓰면 슬라이드쇼 같은 인상이 강해서, 요즘 릴스/쇼츠에서 흔히 쓰는 전환들을 컷마다 돌아가며 섞는다.
-      // xfade는 겹치는 구간만큼 전체 길이가 짧아지므로(클립 N개, 겹침 t초 → N*clipSeconds-(N-1)*t)
-      // 최종 길이도 그에 맞춰 다시 계산해야 한다.
+      // 컷끼리 뚝뚝 끊기지 않도록 concat 대신 xfade로 크로스페이드/트렌디한 전환을 준다. 전환
+      // 종류는 포맷(JSON)이 "들어가는 구간" 기준으로 고정해 두었으므로 컷마다 무작위로 섞지 않는다.
       //
       // 주의: 한 번의 filter_complex에 N개 클립을 전부 넣는 방식은 Render에서 "Ran out of memory
-      // (used over 512MB)"로 인스턴스 자체가 죽는 걸 이벤트 로그로 직접 확인했다 — 사진 수를
-      // 4장으로 제한해도(MAX_REELS_PHOTOS) 엔딩카드까지 5개 클립을 동시에 디코딩하면 여전히
-      // 넘었다. 그래서 두 클립씩만 순차적으로 합치는 방식(ffmpeg N-1번 호출, 항상 스트림 2개만
-      // 동시 디코딩)으로 바꿨다. 호출 횟수가 늘어 시간은 조금 더 걸리지만, 사진 수가 4장으로
-      // 제한돼 있어서(이전에 6장으로 테스트했을 때처럼 호출이 과도하게 늘어나는 일은 없다) 감당할
-      // 만한 수준이다.
-      const XFADE_DURATION = 0.4;
-      const TRANSITIONS = ['fade', 'circleopen', 'zoomin', 'slideup', 'wiperight'];
+      // (used over 512MB)"로 인스턴스 자체가 죽는 걸 이벤트 로그로 직접 확인했다 — 그래서 두
+      // 클립씩만 순차적으로 합치는 방식(ffmpeg N-1번 호출, 항상 스트림 2개만 동시 디코딩)을 쓴다.
       let baseVideoPath;
       let totalDuration;
-      let captionCutoffTime = null;
 
       if (clipPaths.length === 1) {
         baseVideoPath = clipPaths[0];
@@ -398,7 +419,7 @@ module.exports = (upload) => {
 
         for (let i = 1; i < clipPaths.length; i++) {
           const offset = totalDuration - XFADE_DURATION;
-          const transition = TRANSITIONS[(i - 1) % TRANSITIONS.length];
+          const transition = specs[i].transition;
           const stepOutPath = path.join(workDir, `xfade_step_${i}.mp4`);
 
           await run([
@@ -410,9 +431,6 @@ module.exports = (upload) => {
             stepOutPath,
           ]);
 
-          // 엔딩 카드로 넘어가는 전환이 시작되는 시점 — 전체 영상용 자막(caption)은 이 시점부터
-          // 꺼서 브랜드 엔딩 카드의 문구와 겹치지 않게 한다.
-          if (hasEndCard && i === clipPaths.length - 1) captionCutoffTime = offset;
           totalDuration = offset + clipDurations[i];
           accPath = stepOutPath;
         }
@@ -420,59 +438,52 @@ module.exports = (upload) => {
         baseVideoPath = accPath;
       }
 
-      const outName = `reels-${Date.now()}.mp4`;
+      const outName = `reels-${Date.now()}-${Math.round(Math.random() * 1e6)}.mp4`;
       const outPath = path.join(OUTPUT_DIR, outName);
 
-      // 컷별 자막을 이미 각 클립에 구웠으면 전체 영상에 또 얹지 않는다.
-      let overlayBuffer = null;
-      if (!usePerCutCaptions) {
-        const captionText = wrapText(caption || '', 16);
-        overlayBuffer = await buildCaptionOverlay(captionText);
-      }
-
-      const args = ['-y', '-i', baseVideoPath]; // input 0: video
-      let overlayIndex = null;
-      if (overlayBuffer) {
-        const overlayPath = path.join(workDir, 'caption.png');
-        fs.writeFileSync(overlayPath, overlayBuffer);
-        args.push('-i', overlayPath);
-        overlayIndex = 1;
-      }
-
-      const overlayEnable = captionCutoffTime !== null ? `:enable='lt(t,${captionCutoffTime})'` : '';
-
-      const audioIndex = overlayIndex === null ? 1 : 2;
+      // 자막은 이미 컷마다 구워 넣었으므로, 마지막 단계는 비디오를 다시 필터링할 필요 없이
+      // 배경음악만 입히면 된다 — 비디오는 재인코딩 없이 그대로 복사해서 Render 부하를 줄인다.
       const musicPath = pickMusic(mood);
-      if (musicPath) {
-        args.push('-stream_loop', '-1', '-i', musicPath);
-      } else {
-        args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
-      }
-
-      // 배경음악이 뚝 끊기지 않도록 시작 1초 페이드인, 끝 1.5초 페이드아웃을 준다.
       const fadeOutStart = Math.max(0, totalDuration - 1.5);
       const audioFilter = musicPath ? `afade=t=in:st=0:d=1,afade=t=out:st=${fadeOutStart}:d=1.5` : null;
 
-      // 주의: '-shortest'는 이 filter_complex(비디오만 필터링 + 오디오 직접 매핑) 조합에서
-      // 오디오 트랙이 0바이트로 누락되는 ffmpeg 버그가 있어 대신 정확한 길이를 '-t'로 명시한다.
-      args.push(
-        ...(overlayIndex !== null
-          ? ['-filter_complex', `[0:v][${overlayIndex}:v]overlay=0:0${overlayEnable}[v]`, '-map', '[v]']
-          : ['-map', '0:v']),
-        '-map', `${audioIndex}:a`,
+      await run([
+        '-y', '-i', baseVideoPath,
+        ...(musicPath
+          ? ['-stream_loop', '-1', '-i', musicPath]
+          : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100']),
+        '-map', '0:v', '-map', '1:a',
         ...(audioFilter ? ['-af', audioFilter] : []),
-        '-c:v', 'libx264', ...ENCODE_ARGS,
+        '-c:v', 'copy',
         '-c:a', 'aac',
         '-t', String(totalDuration),
-        '-pix_fmt', 'yuv420p',
         outPath,
-      );
+      ]);
 
-      await run(args);
+      return { outPath, outName, totalDuration, hasMusic: !!musicPath, formatId };
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  }
+
+  router.post('/', serializeUpload(upload.array('photos', 6), async (req, res) => {
+    const { mood, useSample, storeName, address, category, features } = req.body;
+    const uploadedFiles = useSample === 'true' ? getSampleFiles(4) : req.files;
+
+    if (!uploadedFiles || uploadedFiles.length === 0) {
+      return res.status(400).json({ error: '사진/영상을 최소 1개 이상 업로드해야 합니다.' });
+    }
+    const files = uploadedFiles.slice(0, MAX_REELS_PHOTOS);
+    const trimmedCount = uploadedFiles.length - files.length;
+
+    try {
+      const formatResult = await pickFormatAndCaptions({ storeName, category, features, photoCount: files.length });
+      const { outName, hasMusic } = await generateReelsVideo({ files, storeName, address, mood, formatResult });
 
       res.json({
         url: `/output/${outName}`,
-        hasMusic: !!musicPath,
+        hasMusic,
+        formatId: formatResult.formatId,
         trimmedNote: trimmedCount > 0
           ? `릴스는 서버 안정성을 위해 최대 ${MAX_REELS_PHOTOS}장까지만 사용돼요. 앞 ${MAX_REELS_PHOTOS}장으로 만들었어요.`
           : null,
@@ -481,12 +492,12 @@ module.exports = (upload) => {
       console.error('reels generation error:', err.message, err.stderr || '');
       res.status(500).json({ error: '릴스 생성 중 오류가 발생했습니다.', detail: err.stderr || err.message });
     } finally {
-      fs.rmSync(workDir, { recursive: true, force: true });
       for (const f of uploadedFiles) {
         if (!f.isSample) fs.rm(f.path, { force: true }, () => {});
       }
     }
   }));
 
+  router.generateReelsVideo = generateReelsVideo;
   return router;
 };

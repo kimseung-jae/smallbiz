@@ -1,0 +1,29 @@
+{
+  "id": "hook-list",
+  "name": "훅-리스트형",
+  "description": "0~1.5초 큰 글씨 훅으로 시선을 붙잡고, 사진 3~4컷을 한 줄 캡션과 함께 빠르게 보여준 뒤 엔딩 카드로 마무리하는 가장 범용적인 포맷. 메뉴가 여러 개거나 매장 분위기를 여러 장으로 보여주고 싶을 때 적합.",
+  "segments": [
+    {
+      "id": "hook",
+      "type": "hook",
+      "duration": 1.5,
+      "transition": "fade",
+      "caption": { "maxChars": 12, "position": "center", "fontSize": 64 }
+    },
+    {
+      "id": "cuts",
+      "type": "photo-cuts",
+      "duration": 10.5,
+      "cutCount": { "min": 3, "max": 4 },
+      "transition": "slideup",
+      "caption": { "maxChars": 14, "position": "bottom", "fontSize": 46 }
+    },
+    {
+      "id": "ending",
+      "type": "endcard",
+      "duration": 3,
+      "transition": "circleopen",
+      "endCard": { "showAddress": true, "cta": "지금 바로 방문해보세요" }
+    }
+  ]
+}

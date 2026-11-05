@@ -806,7 +806,6 @@ generateBtn.addEventListener('click', async () => {
     const flyerLines = String(textData.flyer_text || '').split('\n').filter(Boolean);
     const headline = flyerLines[0] || storeName;
     const subtext = flyerLines.slice(1).join(' ') || introText;
-    const caption = (textData.sns_captions && textData.sns_captions[0]) || introText;
 
     resultBox.hidden = false;
     const combinedEstimate = 12 + selectedFiles.length * 7; // 릴스가 더 오래 걸려서 그 추정치에 맞춤
@@ -815,7 +814,7 @@ generateBtn.addEventListener('click', async () => {
     }, combinedEstimate);
 
     const posterPromise = generatePoster({ storeName, headline, subtext, address: selectedStoreAddress });
-    const reelsPromise = generateReels({ storeName, introText, caption, mood: moodSelect.value, address: selectedStoreAddress });
+    const reelsPromise = generateReels({ storeName, introText, mood: moodSelect.value, address: selectedStoreAddress });
 
     await Promise.allSettled([posterPromise, reelsPromise]);
     stopStatusTimer();
@@ -896,7 +895,7 @@ async function fetchAutoCaptions(endpoint, body) {
   }
 }
 
-async function generateReels({ storeName, introText, caption, mood, address }) {
+async function generateReels({ storeName, introText, mood, address }) {
   const reelsEstimate = 12 + selectedFiles.length * 7;
   const stopTimer = startElapsedTimer((s, remaining) => {
     reelsArea.textContent = `릴스 만드는 중... (${s}초 경과${remainingLabel(remaining)})`;
@@ -904,20 +903,11 @@ async function generateReels({ storeName, introText, caption, mood, address }) {
   try {
     const fd = new FormData();
     selectedFiles.forEach((f) => fd.append('photos', f));
-    fd.append('caption', caption);
     if (mood) fd.append('mood', mood);
     if (storeName) fd.append('storeName', storeName);
     if (address) fd.append('address', address);
-
-    const perCutCaptions = await fetchAutoCaptions('/api/reels/captions', {
-      storeName,
-      category: selectedStoreCategory,
-      features: introText,
-      cutCount: selectedFiles.length,
-    });
-    if (perCutCaptions) {
-      fd.append('captions', JSON.stringify(perCutCaptions));
-    }
+    if (selectedStoreCategory) fd.append('category', selectedStoreCategory);
+    if (introText) fd.append('features', introText);
 
     const res = await fetch('/api/reels', { method: 'POST', body: fd });
     const data = await parseJsonSafe(res);
